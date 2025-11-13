@@ -31,7 +31,7 @@ services:
       dockerfile: docker/geoserver/Dockerfile
       args:
         GS_VERSION: 2.27.0
-        BUILD_GDAL: "true"
+        BUILD_GDAL: "false"
     container_name: ci2d3_geoserver
     environment:
       GEOSERVER_ADMIN_USER: admin
