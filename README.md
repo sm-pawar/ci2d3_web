@@ -137,10 +137,10 @@ ci2d3_web/
 
    ```bash
    # Option 1: Using bash script
-   docker-compose exec postgis bash /data/../scripts/load_data.sh
+   docker-compose exec postgis bash /scripts/load_data.sh
 
    # Option 2: Using Python script
-   docker-compose exec postgis python3 /data/../scripts/load_data.py
+   docker-compose exec postgis python3 /scripts/load_data.py
    ```
 
 5. **Configure GeoServer**

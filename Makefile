@@ -39,13 +39,13 @@ clean: ## Stop services and remove volumes (WARNING: deletes data)
 	docker-compose down -v
 
 load-data: ## Load shapefile into PostGIS
-	docker-compose exec postgis bash /home/user/ci2d3_web/scripts/load_data.sh
+	docker-compose exec postgis bash /scripts/load_data.sh
 
 load-data-python: ## Load shapefile using Python script
-	docker-compose exec postgis python3 /home/user/ci2d3_web/scripts/load_data.py
+	docker-compose exec postgis python3 /scripts/load_data.py
 
 config-geoserver: ## Configure GeoServer workspace and layer
-	docker-compose exec geoserver bash /home/user/ci2d3_web/scripts/configure_geoserver.sh
+	docker-compose exec geoserver bash /opt/scripts/configure_geoserver.sh
 
 db-shell: ## Open PostgreSQL shell
 	docker-compose exec postgis psql -U geoserver -d ci2d3_db

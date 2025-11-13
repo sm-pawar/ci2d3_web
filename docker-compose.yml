@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # PostgreSQL with PostGIS extension
   postgis:
-    image: postgis/postgis:16-3.4
+    build:
+      context: .
+      dockerfile: docker/postgres-postgis/Dockerfile
     container_name: ci2d3_postgis
     environment:
       POSTGRES_DB: ci2d3_db
@@ -13,6 +15,7 @@ services:
     volumes:
       - postgis_data:/var/lib/postgresql/data
       - ./data:/data:ro
+      - ./scripts:/scripts:ro
     ports:
       - "5432:5432"
     networks:

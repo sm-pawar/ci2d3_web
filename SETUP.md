@@ -141,13 +141,13 @@ You should see the shapefile and its companion files (.dbf, .shx, .prj).
 **Option A: Using the Bash Script**
 
 ```bash
-docker-compose exec postgis bash -c "cd / && bash /home/user/ci2d3_web/scripts/load_data.sh"
+docker-compose exec postgis bash /scripts/load_data.sh
 ```
 
 **Option B: Using the Python Script**
 
 ```bash
-docker-compose exec postgis python3 /home/user/ci2d3_web/scripts/load_data.py
+docker-compose exec postgis python3 /scripts/load_data.py
 ```
 
 ### Step 3: Verify Data Load

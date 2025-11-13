@@ -215,7 +215,7 @@ Press `Ctrl+C` to exit log view.
 
 ```bash
 # Load shapefile into PostGIS
-docker-compose exec postgis bash /home/user/ci2d3_web/scripts/load_data.sh
+docker-compose exec postgis bash /scripts/load_data.sh
 
 # Verify data loaded
 docker-compose exec postgis psql -U geoserver -d ci2d3_db -c "SELECT COUNT(*) FROM iceislands;"
@@ -404,7 +404,7 @@ docker-compose exec postgis psql -U geoserver -d ci2d3_db -c "SELECT COUNT(*) FR
 
 **Reload data if needed:**
 ```bash
-docker-compose exec postgis bash /home/user/ci2d3_web/scripts/load_data.sh
+docker-compose exec postgis bash /scripts/load_data.sh
 ```
 
 ---
