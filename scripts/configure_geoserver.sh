@@ -11,9 +11,11 @@ echo "GeoServer Configuration Script"
 echo "========================================="
 
 # GeoServer configuration
+# When running inside GeoServer container, use localhost
+# When running from host or another container, set GEOSERVER_URL env var
 GEOSERVER_URL="${GEOSERVER_URL:-http://localhost:8080/geoserver}"
-GEOSERVER_USER="${GEOSERVER_USER:-admin}"
-GEOSERVER_PASSWORD="${GEOSERVER_PASSWORD:-geoserver}"
+GEOSERVER_USER="${GEOSERVER_ADMIN_USER:-${GEOSERVER_USER:-admin}}"
+GEOSERVER_PASSWORD="${GEOSERVER_ADMIN_PASSWORD:-${GEOSERVER_PASSWORD:-geoserver}}"
 
 # Workspace configuration
 WORKSPACE="ci2d3"
@@ -41,21 +43,43 @@ echo ""
 
 # Wait for GeoServer to be ready
 echo "Waiting for GeoServer to be ready..."
-MAX_RETRIES=30
+echo "NOTE: GeoServer can take 2-3 minutes to fully start on first run"
+echo ""
+
+MAX_RETRIES=60  # Increased from 30 to 60 (5 minutes total)
 RETRY_COUNT=0
+WAIT_TIME=5
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    # Try to connect to GeoServer REST API
     if curl -s -f -u "$GEOSERVER_USER:$GEOSERVER_PASSWORD" "$GEOSERVER_URL/rest/about/version.json" > /dev/null 2>&1; then
-        echo "GeoServer is ready!"
+        echo ""
+        echo "✓ GeoServer is ready!"
         break
     fi
-    echo "  Attempt $((RETRY_COUNT+1))/$MAX_RETRIES: GeoServer is not ready yet..."
-    sleep 5
+
+    ELAPSED=$((RETRY_COUNT * WAIT_TIME))
+    echo "  Attempt $((RETRY_COUNT+1))/$MAX_RETRIES (${ELAPSED}s elapsed): Waiting for GeoServer..."
+    sleep $WAIT_TIME
     RETRY_COUNT=$((RETRY_COUNT+1))
 done
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo "ERROR: GeoServer did not become ready in time"
+    echo ""
+    echo "ERROR: GeoServer did not become ready after $((MAX_RETRIES * WAIT_TIME)) seconds"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check if GeoServer container is running:"
+    echo "     docker-compose ps geoserver"
+    echo ""
+    echo "  2. Check GeoServer logs:"
+    echo "     docker-compose logs geoserver | tail -50"
+    echo ""
+    echo "  3. Wait for GeoServer to fully start, then run this script again"
+    echo ""
+    echo "  4. Verify GeoServer is accessible:"
+    echo "     curl http://localhost:8080/geoserver/web/"
+    echo ""
     exit 1
 fi
 
