@@ -16,8 +16,8 @@ venv/
 env/
 .venv
 
-# Backend (not needed for GeoServer image)
-backend/
+# Note: backend/ is needed for Flask API build
+# It will be included in GeoServer image but unused (minimal impact)
 
 # IDE
 .vscode/
