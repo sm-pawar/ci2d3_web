@@ -3,13 +3,8 @@
  * Handles Leaflet map initialization and layer management
  */
 
-// Configuration
-const CONFIG = {
-    geoserverUrl: 'http://localhost:8080/geoserver',
-    workspace: 'ci2d3',
-    layer: 'iceislands',
-    apiUrl: 'http://localhost:5000/api'
-};
+// Configuration is loaded from config.js
+// CONFIG variable is available globally
 
 // Global variables
 let map;
