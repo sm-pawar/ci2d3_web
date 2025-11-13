@@ -50,7 +50,14 @@ Thumbs.db
 docker-compose.override.yml
 
 # GeoServer data (if storing locally)
-geoserver_data/
+geoserver_data/*
+!geoserver_data/.gitkeep
+
+# GeoServer optional directories
+additional_fonts/*
+!additional_fonts/.gitkeep
+additional_libs/*
+!additional_libs/.gitkeep
 
 # Database
 *.db

@@ -1,3 +1,30 @@
+# ==============================================================================
+# CI2D3 Ice Island Explorer - GeoServer Dockerfile
+# ==============================================================================
+#
+# Multi-stage Docker build for GeoServer with GDAL support
+#
+# PROJECT STRUCTURE (build context is project root):
+#   - frontend/          -> Copied to Tomcat ROOT webapp (serves CI2D3 web app)
+#   - data/              -> Ice island shapefiles and SLD styles
+#   - geoserver_data/    -> Custom GeoServer data directory (optional)
+#   - config/            -> Configuration files (startup.sh, etc.)
+#   - scripts/           -> Utility scripts (data loading, GeoServer config)
+#
+# ENVIRONMENT VARIABLES (set via docker-compose.yml):
+#   - POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USERNAME, POSTGRES_PASSWORD
+#   - GEOSERVER_ADMIN_USER, GEOSERVER_ADMIN_PASSWORD
+#   - EXTRA_JAVA_OPTS (JVM settings)
+#
+# VOLUMES:
+#   - /opt/geoserver_data  -> GeoServer data directory
+#   - /opt/data            -> Ice island data files
+#
+# PORTS:
+#   - 8080: GeoServer web interface and CI2D3 frontend
+#
+# ==============================================================================
+
 ARG BUILDER_BASE_IMAGE=eclipse-temurin:17.0.16_8-jdk-jammy@sha256:ac8a552a417551699694a711119e1c410a4b65ed79cb98b16584bc91c0d491b6
 ARG GEOSERVER_BASE_IMAGE=tomcat:9.0.109-jdk17-temurin-jammy@sha256:48af237e4f570a172473cd2b0397419d7a12f9992a89334935e72fd0ddaa4574
 
@@ -167,8 +194,9 @@ ARG CORS_ENABLED=true
 ARG GS_VERSION
 ARG GS_BUILD=release
 ARG GS_DATA_PATH=./geoserver_data/
-ARG WEBSITE_PATH=./website/
+ARG WEBSITE_PATH=./frontend/
 ARG CUSTOM_DATA_PATH=./data/
+ARG SCRIPTS_PATH=./scripts/
 ARG INSTALL_PREFIX
 ARG STABLE_PLUGIN_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/extensions
 ARG WAR_ZIP_URL=https://downloads.sourceforge.net/project/geoserver/GeoServer/${GS_VERSION}/geoserver-${GS_VERSION}-war.zip
@@ -285,20 +313,34 @@ RUN set -eux \
     && mv $CATALINA_HOME/webapps/geoserver/WEB-INF/lib/postgresql-*.jar $CATALINA_HOME/lib/ \
     && mkdir -p $GEOSERVER_DATA_DIR
 
-# Create data directory
-RUN mkdir -p $DATA_DIR
+# Create required directories
+RUN mkdir -p $DATA_DIR \
+    && mkdir -p /opt/scripts \
+    && mkdir -p $CATALINA_HOME/webapps/ROOT
 
-# Copy website files to ROOT webapp (this will serve on port 80/8080 root)
-COPY $WEBSITE_PATH $CATALINA_HOME/webapps/ROOT/
+# Copy website files to ROOT webapp (serves the frontend on port 8080 root)
+# Use wildcard pattern to handle case where frontend/ might be empty
+COPY $WEBSITE_PATH* $CATALINA_HOME/webapps/ROOT/ 2>/dev/null || :
 
-# Copy geoserver data and custom data
-COPY $GS_DATA_PATH $GEOSERVER_DATA_DIR
-COPY $CUSTOM_DATA_PATH $DATA_DIR
-COPY $ADDITIONAL_LIBS_PATH $GEOSERVER_LIB_DIR
-COPY $ADDITIONAL_FONTS_PATH /usr/share/fonts/truetype/
+# Copy geoserver data if exists (optional - can be volume mounted)
+# Use wildcard to handle empty directory
+COPY $GS_DATA_PATH* $GEOSERVER_DATA_DIR/ 2>/dev/null || :
 
-# Add default configs
-COPY config $CONFIG_DIR
+# Copy custom data (ice island shapefiles, SLD styles, etc.)
+# This will be accessible from GeoServer
+COPY $CUSTOM_DATA_PATH $DATA_DIR/
+
+# Copy additional libraries if provided (optional)
+COPY $ADDITIONAL_LIBS_PATH* $GEOSERVER_LIB_DIR/ 2>/dev/null || :
+
+# Copy additional fonts if provided (optional)
+COPY $ADDITIONAL_FONTS_PATH* /usr/share/fonts/truetype/ 2>/dev/null || :
+
+# Copy configuration files (startup scripts, etc.)
+COPY config/ $CONFIG_DIR/
+
+# Copy utility scripts to /opt/scripts
+COPY scripts/*.sh /opt/scripts/ 2>/dev/null || :
 
 # Apply CIS Apache tomcat recommendations regarding server information
 # * Alter the advertised server.info String (2.1 - 2.3)
@@ -310,17 +352,18 @@ RUN cd $CATALINA_HOME/lib \
     && jar uf catalina.jar org/apache/catalina/util/ServerInfo.properties \
     && rm -rf org/apache/catalina/util/ServerInfo.properties
 
-# copy scripts
-COPY *.sh /opt/
+# Make scripts executable
+RUN chmod +x $CONFIG_DIR/*.sh 2>/dev/null || : \
+    && chmod +x /opt/scripts/*.sh 2>/dev/null || :
 
 # CIS Docker benchmark: Remove setuid and setgid permissions in the images to prevent privilege escalation attacks within containers.
 RUN find / -perm /6000 -type f -exec chmod a-s {} \; || true
 
-# cleanup
+# Cleanup
 RUN apt purge -y  \
   && apt autoremove --purge -y \
-  && rm -rf /tmp/ \
-  # Don't remove ROOT webapp as we're using it for the website
+  && rm -rf /tmp/* \
+  # Don't remove ROOT webapp as we're using it for the CI2D3 frontend
   && rm -rf $CATALINA_HOME/webapps/docs \
   && rm -rf $CATALINA_HOME/webapps/examples \
   && rm -rf $CATALINA_HOME/webapps/host-manager \
@@ -329,16 +372,25 @@ RUN apt purge -y  \
 # GeoServer user => restrict access to $CATALINA_HOME and GeoServer directories
 # See also CIS Docker benchmark and docker best practices
 
-RUN chmod +x /opt/*.sh && sed -i 's/\r$//' /opt/startup.sh
+# Prepare startup script
+RUN if [ -f "$CONFIG_DIR/startup.sh" ]; then \
+        cp $CONFIG_DIR/startup.sh /opt/startup.sh && \
+        chmod +x /opt/startup.sh && \
+        sed -i 's/\r$//' /opt/startup.sh; \
+    else \
+        echo '#!/bin/bash' > /opt/startup.sh && \
+        echo 'exec catalina.sh run' >> /opt/startup.sh && \
+        chmod +x /opt/startup.sh; \
+    fi
 
-# Use the original startup script
+# Use the startup script
 ENTRYPOINT ["bash", "/opt/startup.sh"]
 
 WORKDIR /opt
 
-# Expose port 8080 for both website (root) and GeoServer
+# Expose port 8080 for GeoServer and frontend
 EXPOSE 8080
 
-# Update healthcheck to check both website and GeoServer
+# Healthcheck - verify GeoServer is running
 HEALTHCHECK --interval=1m --timeout=20s --retries=3 \
-  CMD curl --fail --url "http://localhost:8080/" && curl --fail --url "http://localhost:8080/geoserver/web/" || exit 1
+  CMD curl --fail --url "http://localhost:8080/geoserver/web/" || exit 1
