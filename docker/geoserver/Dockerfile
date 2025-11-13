@@ -318,29 +318,42 @@ RUN mkdir -p $DATA_DIR \
     && mkdir -p /opt/scripts \
     && mkdir -p $CATALINA_HOME/webapps/ROOT
 
-# Copy website files to ROOT webapp (serves the frontend on port 8080 root)
-# Use wildcard pattern to handle case where frontend/ might be empty
-COPY $WEBSITE_PATH* $CATALINA_HOME/webapps/ROOT/ 2>/dev/null || :
-
-# Copy geoserver data if exists (optional - can be volume mounted)
-# Use wildcard to handle empty directory
-COPY $GS_DATA_PATH* $GEOSERVER_DATA_DIR/ 2>/dev/null || :
-
 # Copy custom data (ice island shapefiles, SLD styles, etc.)
-# This will be accessible from GeoServer
+# This is required and will be accessible from GeoServer
 COPY $CUSTOM_DATA_PATH $DATA_DIR/
-
-# Copy additional libraries if provided (optional)
-COPY $ADDITIONAL_LIBS_PATH* $GEOSERVER_LIB_DIR/ 2>/dev/null || :
-
-# Copy additional fonts if provided (optional)
-COPY $ADDITIONAL_FONTS_PATH* /usr/share/fonts/truetype/ 2>/dev/null || :
 
 # Copy configuration files (startup scripts, etc.)
 COPY config/ $CONFIG_DIR/
 
 # Copy utility scripts to /opt/scripts
-COPY scripts/*.sh /opt/scripts/ 2>/dev/null || :
+COPY scripts/*.sh /opt/scripts/
+
+# Copy optional files using RUN with shell to handle missing files gracefully
+RUN set -eux; \
+    # Copy frontend files to ROOT webapp if they exist \
+    if [ -d "${WEBSITE_PATH}" ] && [ "$(ls -A ${WEBSITE_PATH} 2>/dev/null)" ]; then \
+        cp -r ${WEBSITE_PATH}* $CATALINA_HOME/webapps/ROOT/ || true; \
+    else \
+        echo "No frontend files found, skipping..."; \
+    fi; \
+    # Copy geoserver data if exists (optional - can be volume mounted) \
+    if [ -d "${GS_DATA_PATH}" ] && [ "$(ls -A ${GS_DATA_PATH} 2>/dev/null)" ]; then \
+        cp -r ${GS_DATA_PATH}* $GEOSERVER_DATA_DIR/ || true; \
+    else \
+        echo "No geoserver_data files found, skipping..."; \
+    fi; \
+    # Copy additional libraries if provided \
+    if [ -d "${ADDITIONAL_LIBS_PATH}" ] && [ "$(ls -A ${ADDITIONAL_LIBS_PATH} 2>/dev/null)" ]; then \
+        cp -r ${ADDITIONAL_LIBS_PATH}* $GEOSERVER_LIB_DIR/ || true; \
+    else \
+        echo "No additional libraries found, skipping..."; \
+    fi; \
+    # Copy additional fonts if provided \
+    if [ -d "${ADDITIONAL_FONTS_PATH}" ] && [ "$(ls -A ${ADDITIONAL_FONTS_PATH} 2>/dev/null)" ]; then \
+        cp -r ${ADDITIONAL_FONTS_PATH}* /usr/share/fonts/truetype/ || true; \
+    else \
+        echo "No additional fonts found, skipping..."; \
+    fi
 
 # Apply CIS Apache tomcat recommendations regarding server information
 # * Alter the advertised server.info String (2.1 - 2.3)
@@ -353,8 +366,9 @@ RUN cd $CATALINA_HOME/lib \
     && rm -rf org/apache/catalina/util/ServerInfo.properties
 
 # Make scripts executable
-RUN chmod +x $CONFIG_DIR/*.sh 2>/dev/null || : \
-    && chmod +x /opt/scripts/*.sh 2>/dev/null || :
+RUN set -e; \
+    find $CONFIG_DIR -name "*.sh" -type f -exec chmod +x {} \; || true; \
+    find /opt/scripts -name "*.sh" -type f -exec chmod +x {} \; || true
 
 # CIS Docker benchmark: Remove setuid and setgid permissions in the images to prevent privilege escalation attacks within containers.
 RUN find / -perm /6000 -type f -exec chmod a-s {} \; || true
