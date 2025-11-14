@@ -265,7 +265,7 @@ RUN set -eux \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     # Basic dependencies
-    openssl curl unzip locales gettext gosu \
+    openssl curl unzip locales gettext gosu postgresql-client \
     && if test "${BUILD_GDAL}" = "true"; then \
         # PROJ dependencies
         apt-get install -y --no-install-recommends libsqlite3-0 libtiff5 libcurl4 ca-certificates \
