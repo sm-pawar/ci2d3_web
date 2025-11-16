@@ -328,14 +328,12 @@ COPY config/ $CONFIG_DIR/
 # Copy utility scripts to /opt/scripts
 COPY scripts/*.sh /opt/scripts/
 
+# Copy frontend files to ROOT webapp
+# This serves the CI2D3 web interface on http://localhost:8080/
+COPY $WEBSITE_PATH $CATALINA_HOME/webapps/ROOT/
+
 # Copy optional files using RUN with shell to handle missing files gracefully
 RUN set -eux; \
-    # Copy frontend files to ROOT webapp if they exist \
-    if [ -d "${WEBSITE_PATH}" ] && [ "$(ls -A ${WEBSITE_PATH} 2>/dev/null)" ]; then \
-        cp -r ${WEBSITE_PATH}* $CATALINA_HOME/webapps/ROOT/ || true; \
-    else \
-        echo "No frontend files found, skipping..."; \
-    fi; \
     # Copy geoserver data if exists (optional - can be volume mounted) \
     if [ -d "${GS_DATA_PATH}" ] && [ "$(ls -A ${GS_DATA_PATH} 2>/dev/null)" ]; then \
         cp -r ${GS_DATA_PATH}* $GEOSERVER_DATA_DIR/ || true; \
