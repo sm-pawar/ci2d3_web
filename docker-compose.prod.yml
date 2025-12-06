@@ -1,0 +1,169 @@
+version: '3.8'
+
+# Lightweight configuration for AWS Free Tier (t2.micro: 1 vCPU, 1GB RAM)
+# Total memory allocation: ~900MB to leave room for OS
+
+services:
+  # PostgreSQL with PostGIS - Optimized for low memory
+  postgis:
+    build:
+      context: .
+      dockerfile: docker/postgres-postgis/Dockerfile
+    container_name: ci2d3_postgis
+    environment:
+      POSTGRES_DB: ci2d3_db
+      POSTGRES_USER: geoserver
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-geoserver123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      # PostgreSQL memory optimization for 1GB instance
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=128MB"           # Reduced from default 128MB
+      - "-c"
+      - "effective_cache_size=256MB"     # Reduced from default
+      - "-c"
+      - "work_mem=4MB"                   # Reduced from default 4MB
+      - "-c"
+      - "maintenance_work_mem=32MB"      # Reduced from default
+      - "-c"
+      - "max_connections=20"             # Reduced from default 100
+      - "-c"
+      - "random_page_cost=1.1"           # SSD optimization
+      - "-c"
+      - "effective_io_concurrency=200"   # SSD optimization
+      - "-c"
+      - "wal_buffers=4MB"                # Reduced
+      - "-c"
+      - "min_wal_size=80MB"
+      - "-c"
+      - "max_wal_size=1GB"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./data:/data:ro
+      - ./scripts:/scripts:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - ci2d3_network
+    deploy:
+      resources:
+        limits:
+          memory: 300M      # Limit PostgreSQL to 300MB
+          cpus: '0.5'
+        reservations:
+          memory: 200M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoserver -d ci2d3_db"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # GeoServer - Heavily optimized for low memory
+  geoserver:
+    build:
+      context: .
+      dockerfile: docker/geoserver/Dockerfile
+      args:
+        GS_VERSION: 2.27.0
+        BUILD_GDAL: "false"
+    container_name: ci2d3_geoserver
+    environment:
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_PASSWORD:-geoserver}
+      POSTGRES_JNDI_ENABLED: "true"
+      POSTGRES_HOST: postgis
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ci2d3_db
+      POSTGRES_USERNAME: geoserver
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-geoserver123}
+      # Minimal Java heap for t2.micro
+      EXTRA_JAVA_OPTS: >-
+        -Xms128m
+        -Xmx400m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:ParallelGCThreads=2
+        -XX:ConcGCThreads=1
+        -XX:InitiatingHeapOccupancyPercent=45
+        -Djava.awt.headless=true
+        -DGEOSERVER_CSRF_DISABLED=true
+        -DALLOW_ENV_PARAMETRIZATION=true
+      CORS_ENABLED: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+      # Disable extensions to save memory
+      INSTALL_EXTENSIONS: "false"
+      STABLE_EXTENSIONS: ""
+    volumes:
+      - geoserver_data:/opt/geoserver_data
+      - ./data:/opt/data:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - ci2d3_network
+    deploy:
+      resources:
+        limits:
+          memory: 450M      # Limit GeoServer to 450MB
+          cpus: '0.5'
+        reservations:
+          memory: 300M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/geoserver/web/"]
+      interval: 60s       # Reduced frequency
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Give more time for slow startup
+    restart: unless-stopped
+
+  # Flask API - Lightweight with Gunicorn
+  flask-api:
+    build:
+      context: .
+      dockerfile: docker/flask-api/Dockerfile
+    container_name: ci2d3_flask_api
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: production
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: ci2d3_db
+      DB_USER: geoserver
+      DB_PASSWORD: ${DB_PASSWORD:-geoserver123}
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      # Gunicorn settings for low memory
+      WORKERS: 2
+      WORKER_CLASS: sync
+      TIMEOUT: 30
+    volumes:
+      - ./backend:/app
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - ci2d3_network
+    deploy:
+      resources:
+        limits:
+          memory: 150M      # Limit Flask to 150MB
+          cpus: '0.3'
+        reservations:
+          memory: 100M
+    # Use Gunicorn instead of Flask dev server
+    command: gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 30 --access-logfile - --error-logfile - app:app
+    restart: unless-stopped
+
+networks:
+  ci2d3_network:
+    driver: bridge
+
+volumes:
+  postgis_data:
+  geoserver_data:
