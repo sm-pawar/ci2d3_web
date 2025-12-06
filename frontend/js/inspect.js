@@ -195,10 +195,19 @@ function populateAttributeSelect(attributes) {
             const option = document.createElement('option');
             option.value = attr.name;
             option.textContent = formatPropertyLabel(attr.name);
-            option.dataset.type = attr.data_type;
+            // Fix: API returns 'type', not 'data_type'
+            option.dataset.type = attr.type;  // Changed from attr.data_type
             select.appendChild(option);
         }
     });
+
+    // After populating, if 'area' option exists, select it by default
+    const areaOption = Array.from(select.options).find(opt => opt.value === 'area');
+    if (areaOption) {
+        areaOption.selected = true;
+        // Trigger change event to update operators
+        select.dispatchEvent(new Event('change'));
+    }
 }
 
 // Event listeners
