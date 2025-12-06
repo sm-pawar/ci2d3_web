@@ -141,19 +141,27 @@ class DatabaseService:
                 where_clause = f"{field} {operator} :value"
                 params = {'value': value}
 
+            # First, get all column names from the table (except geometry and gid)
+            columns_query = text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'iceislands'
+                    AND column_name NOT IN ('geom', 'gid')
+                ORDER BY ordinal_position
+            """)
+
+            column_results = session.execute(columns_query).fetchall()
+            column_names = [row[0] for row in column_results]
+
+            # Build the SELECT clause dynamically
+            columns_str = ', '.join(column_names)
+
             # Query to get filtered features with geometry as GeoJSON in WGS84
             query = text(f"""
                 SELECT
                     gid,
                     ST_AsGeoJSON(ST_Transform(geom, 4326))::json as geometry,
-                    objectid,
-                    calvingloc,
-                    carving_year,
-                    area_km2,
-                    perimeter_km,
-                    max_length_km,
-                    thickness_m,
-                    status
+                    {columns_str}
                 FROM iceislands
                 WHERE {where_clause}
                 ORDER BY gid
@@ -165,20 +173,16 @@ class DatabaseService:
             # Build GeoJSON FeatureCollection
             features = []
             for row in results:
+                # row[0] = gid, row[1] = geometry, row[2:] = all other columns
+                properties = {}
+                for i, col_name in enumerate(column_names):
+                    properties[col_name] = row[i + 2]  # +2 because gid and geometry come first
+
                 features.append({
                     'type': 'Feature',
                     'id': row[0],  # gid
                     'geometry': row[1],  # geometry as GeoJSON
-                    'properties': {
-                        'objectid': row[2],
-                        'calvingloc': row[3],
-                        'carving_year': row[4],
-                        'area_km2': row[5],
-                        'perimeter_km': row[6],
-                        'max_length_km': row[7],
-                        'thickness_m': row[8],
-                        'status': row[9]
-                    }
+                    'properties': properties
                 })
 
             return {
