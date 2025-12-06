@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with PostGIS extension
+  postgis:
+    build:
+      context: .
+      dockerfile: docker/postgres-postgis/Dockerfile
+    container_name: ci2d3_postgis
+    environment:
+      POSTGRES_DB: ci2d3_db
+      POSTGRES_USER: geoserver
+      POSTGRES_PASSWORD: geoserver123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./data:/data:ro
+      - ./scripts:/scripts:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - ci2d3_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoserver -d ci2d3_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # GeoServer
+  geoserver:
+    build:
+      context: .
+      dockerfile: docker/geoserver/Dockerfile
+      args:
+        GS_VERSION: 2.27.0
+        BUILD_GDAL: "false"
+    container_name: ci2d3_geoserver
+    environment:
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      POSTGRES_JNDI_ENABLED: "true"
+      POSTGRES_HOST: postgis
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ci2d3_db
+      POSTGRES_USERNAME: geoserver
+      POSTGRES_PASSWORD: geoserver123
+      EXTRA_JAVA_OPTS: "-Xms512m -Xmx2g"
+      CORS_ENABLED: "true"
+      CORS_ALLOWED_ORIGINS: "*"
+      INSTALL_EXTENSIONS: "true"
+      STABLE_EXTENSIONS: "wps,csw"
+    volumes:
+      - geoserver_data:/opt/geoserver_data
+      - ./data:/opt/data:ro
+      - ./website:/website
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - ci2d3_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/geoserver/web/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Flask API Backend
+  flask-api:
+    build:
+      context: .
+      dockerfile: docker/flask-api/Dockerfile
+    container_name: ci2d3_flask_api
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: development
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: ci2d3_db
+      DB_USER: geoserver
+      DB_PASSWORD: geoserver123
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+    volumes:
+      - ./backend:/app
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgis:
+        condition: service_healthy
+    networks:
+      - ci2d3_network
+    command: flask run --host=0.0.0.0 --port=5000
+    restart: unless-stopped
+
+networks:
+  ci2d3_network:
+    driver: bridge
+
+volumes:
+  postgis_data:
+  geoserver_data:

@@ -1,0 +1,302 @@
+/* CI2D3 Ice Island Explorer - Custom Styles */
+
+/* Global Styles */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    overflow: hidden;
+}
+
+/* Navigation */
+.navbar {
+    z-index: 1000;
+}
+
+.brand-icon {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+}
+
+/* Layout */
+.container-fluid {
+    padding: 0;
+    margin-top: 0; /* No navbar - fullscreen map for embedding */
+}
+
+.row {
+    margin: 0;
+}
+
+/* Sidebar */
+.sidebar {
+    background-color: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    height: 100vh; /* Fullscreen height */
+    overflow-y: auto;
+    padding: 0;
+    transition: margin-left 0.3s ease;
+}
+
+.sidebar.hidden {
+    margin-left: -100%;
+}
+
+/* Panel Headers */
+.panel-header {
+    background-color: #e9ecef;
+    padding: 1rem;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.panel-header h5,
+.panel-header h6 {
+    margin: 0;
+}
+
+.panel-content {
+    padding: 1rem;
+}
+
+/* Map Container */
+.map-container {
+    position: relative;
+    padding: 0;
+    height: 100vh; /* Fullscreen - no navbar offset */
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+/* Leaflet Map Panes - Force correct layer ordering */
+/* Basemap should be below WMS layer */
+.custom-basemap-pane {
+    z-index: 100 !important;
+}
+
+.custom-wms-pane {
+    z-index: 900 !important;
+}
+
+/* Ensure default Leaflet panes don't override our custom panes */
+.leaflet-basemappane {
+    z-index: 100 !important;
+}
+
+.leaflet-wmspane {
+    z-index: 900 !important;
+}
+
+/* Inspect Panel */
+.inspect-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 350px;
+    max-height: 80%;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    z-index: 1000;
+    overflow: hidden;
+    display: none;
+}
+
+.inspect-panel.active {
+    display: block;
+}
+
+.inspect-panel .panel-content {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Feature Properties Display */
+.feature-property {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.feature-property:last-child {
+    border-bottom: none;
+}
+
+.property-label {
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.property-value {
+    color: #212529;
+    font-size: 1rem;
+    margin-top: 0.25rem;
+}
+
+/* Filter Form */
+#filterForm .form-label {
+    font-weight: 500;
+    color: #495057;
+}
+
+#filterResults {
+    padding: 1rem;
+    background-color: #e7f3ff;
+    border-radius: 4px;
+    display: none;
+}
+
+#filterResults.active {
+    display: block;
+}
+
+.result-count {
+    font-weight: 600;
+    color: #0d6efd;
+}
+
+/* Loading Indicator */
+.loading-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2000;
+    display: none;
+}
+
+.loading-indicator.active {
+    display: block;
+}
+
+/* Leaflet Popup Customization */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+    margin: 1rem;
+    font-size: 0.9rem;
+}
+
+/* Calving Location Legend Colors */
+.calving-loc-cg {
+    color: #90de4c;
+}
+.calving-loc-na {
+    color: #40d77a;
+}
+.calving-loc-ng {
+    color: #debd76;
+}
+.calving-loc-pg {
+    color: #6154da;
+}
+.calving-loc-rg {
+    color: #dc25e6;
+}
+.calving-loc-sg {
+    color: #d51c3e;
+}
+
+/* Legend Box */
+.legend {
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    line-height: 1.5;
+}
+
+.legend h6 {
+    margin: 0 0 5px;
+    font-size: 0.9rem;
+}
+
+.legend-item {
+    margin: 3px 0;
+    font-size: 0.85rem;
+}
+
+.legend-color {
+    display: inline-block;
+    width: 20px;
+    height: 15px;
+    margin-right: 5px;
+    border: 1px solid #333;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .sidebar {
+        position: absolute;
+        width: 100%;
+        z-index: 999;
+    }
+
+    .map-container {
+        width: 100%;
+    }
+
+    .inspect-panel {
+        width: 90%;
+        right: 5%;
+    }
+}
+
+/* Scrollbar Styling */
+.panel-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    border-color: #6c757d;
+}
+
+/* Close Button */
+.btn-close {
+    filter: brightness(0) invert(1);
+}
+
+.panel-header .btn-close {
+    filter: none;
+}

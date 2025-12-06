@@ -1,0 +1,54 @@
+# Docker ignore file for CI2D3 Ice Island Explorer
+# Excludes files and directories from Docker build context
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+venv/
+env/
+.venv
+
+# Note: backend/ is needed for Flask API build
+# It will be included in GeoServer image but unused (minimal impact)
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in image)
+*.md
+!README.md
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Old files
+old_docker/
+
+# Build artifacts
+dist/
+build/
