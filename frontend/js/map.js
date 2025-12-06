@@ -28,10 +28,12 @@ function initMap() {
     // Basemap pane with lower z-index
     map.createPane('basemapPane');
     map.getPane('basemapPane').style.zIndex = 100; // Lower than default tilePane (200)
+    map.getPane('basemapPane').className = 'leaflet-basemap-pane'; // Add class for CSS targeting
 
-    // WMS overlay pane with higher z-index
+    // WMS overlay pane with MUCH higher z-index to ensure it's on top
     map.createPane('wmsPane');
-    map.getPane('wmsPane').style.zIndex = 650; // Higher than all default panes
+    map.getPane('wmsPane').style.zIndex = 900; // Much higher than all default panes
+    map.getPane('wmsPane').className = 'leaflet-wms-pane'; // Add class for CSS targeting
 
     // Add base map layers - assign to basemapPane
     const baseLayers = {
@@ -56,32 +58,7 @@ function initMap() {
     // Add default base layer
     baseLayers['CartoDB Positron'].addTo(map);
 
-    // Add WMS layer from GeoServer (will be on top due to higher z-index pane)
-    addWMSLayer();
-
-    // Add layer control
-    const layerControl = L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
-
-    // Ensure WMS layer stays on top when basemap is changed
-    map.on('baselayerchange', function() {
-        if (wmsLayer && wmsLayer._map) {
-            wmsLayer.bringToFront();
-        }
-    });
-
-    // Add scale
-    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
-
-    // Add legend
-    addLegend();
-
-    console.log('Map initialized successfully');
-}
-
-/**
- * Add WMS layer from GeoServer
- */
-function addWMSLayer() {
+    // Create WMS layer (but don't add yet)
     const wmsUrl = `${CONFIG.geoserverUrl}/wms`;
     const layerName = `${CONFIG.workspace}:${CONFIG.layer}`;
 
@@ -93,17 +70,29 @@ function addWMSLayer() {
         attribution: 'CI2D3 Ice Island Data',
         opacity: 0.7,
         maxZoom: 18,
-        pane: 'wmsPane' // Use custom high z-index pane (650) to ensure layer appears on top
+        pane: 'wmsPane' // Use custom high z-index pane (900) to ensure layer appears on top
     });
 
+    // Add WMS layer to map immediately to ensure it's visible
     wmsLayer.addTo(map);
 
-    // Explicitly bring WMS layer to front to ensure it's above basemap
-    setTimeout(() => {
+    // Create overlay layers object for layer control
+    const overlayLayers = {
+        'Ice Islands (CI2D3)': wmsLayer
+    };
+
+    // Add layer control with overlays
+    const layerControl = L.control.layers(baseLayers, overlayLayers, {
+        position: 'topright',
+        collapsed: false
+    }).addTo(map);
+
+    // Ensure WMS layer stays on top when basemap is changed
+    map.on('baselayerchange', function() {
         if (wmsLayer && wmsLayer._map) {
             wmsLayer.bringToFront();
         }
-    }, 100);
+    });
 
     // Add click handler for WMS GetFeatureInfo
     map.on('click', function(e) {
@@ -111,6 +100,22 @@ function addWMSLayer() {
             getFeatureInfo(e.latlng);
         }
     });
+
+    // Add scale
+    L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+
+    // Add legend
+    addLegend();
+
+    // Force WMS layer to front after a short delay to ensure it's on top
+    setTimeout(() => {
+        if (wmsLayer && wmsLayer._map) {
+            wmsLayer.bringToFront();
+            console.log('WMS layer brought to front');
+        }
+    }, 500);
+
+    console.log('Map initialized successfully');
 }
 
 /**
