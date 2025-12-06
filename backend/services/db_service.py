@@ -146,7 +146,14 @@ class DatabaseService:
                 SELECT
                     gid,
                     ST_AsGeoJSON(ST_Transform(geom, 4326))::json as geometry,
-                    row_to_json((SELECT d FROM (SELECT * EXCEPT(geom, gid)) d)) as properties
+                    objectid,
+                    calvingloc,
+                    carving_year,
+                    area_km2,
+                    perimeter_km,
+                    max_length_km,
+                    thickness_m,
+                    status
                 FROM iceislands
                 WHERE {where_clause}
                 ORDER BY gid
@@ -160,9 +167,18 @@ class DatabaseService:
             for row in results:
                 features.append({
                     'type': 'Feature',
-                    'id': row[0],
-                    'geometry': row[1],
-                    'properties': row[2] if row[2] else {}
+                    'id': row[0],  # gid
+                    'geometry': row[1],  # geometry as GeoJSON
+                    'properties': {
+                        'objectid': row[2],
+                        'calvingloc': row[3],
+                        'carving_year': row[4],
+                        'area_km2': row[5],
+                        'perimeter_km': row[6],
+                        'max_length_km': row[7],
+                        'thickness_m': row[8],
+                        'status': row[9]
+                    }
                 })
 
             return {
