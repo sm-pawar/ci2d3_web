@@ -25,25 +25,11 @@ body {
 /* Layout */
 .container-fluid {
     padding: 0;
-    margin-top: 56px; /* Height of navbar */
+    margin-top: 0; /* No navbar - fullscreen map for embedding */
 }
 
 .row {
     margin: 0;
-}
-
-/* Sidebar */
-.sidebar {
-    background-color: #f8f9fa;
-    border-right: 1px solid #dee2e6;
-    height: calc(100vh - 56px);
-    overflow-y: auto;
-    padding: 0;
-    transition: margin-left 0.3s ease;
-}
-
-.sidebar.hidden {
-    margin-left: -100%;
 }
 
 /* Panel Headers */
@@ -69,7 +55,7 @@ body {
 .map-container {
     position: relative;
     padding: 0;
-    height: calc(100vh - 56px);
+    height: 100vh; /* Fullscreen - no navbar offset */
 }
 
 #map {

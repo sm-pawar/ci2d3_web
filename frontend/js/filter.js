@@ -221,6 +221,10 @@ function updateOperatorOptions() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // Note: Filter panel and navigation have been removed for embedding mode
+    // Filter functionality is preserved in code but UI elements are commented out
+
+    /*
     // Filter form submission
     document.getElementById('filterForm').addEventListener('submit', applyFilter);
 
@@ -266,4 +270,5 @@ Powered by:
         e.preventDefault();
         alert('Layer control is available in the top-right corner of the map');
     });
+    */
 });
