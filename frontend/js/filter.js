@@ -250,6 +250,25 @@ function updateOperatorOptions() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    // DEBUG: Add mutation observer to catch when data-type attributes are changed
+    const filterField = document.getElementById('filterField');
+    if (filterField) {
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'data-type') {
+                    console.error('MUTATION DETECTED: data-type attribute changed on:', mutation.target);
+                    console.error('Stack trace:', new Error().stack);
+                }
+            });
+        });
+
+        // Observe all option elements for attribute changes
+        Array.from(filterField.options).forEach(option => {
+            observer.observe(option, { attributes: true, attributeFilter: ['data-type'] });
+            console.log('Monitoring option:', option.value, 'data-type:', option.getAttribute('data-type'));
+        });
+    }
+
     // Filter form submission
     const filterForm = document.getElementById('filterForm');
     if (filterForm) {
@@ -271,7 +290,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Update operators when field changes
-    const filterField = document.getElementById('filterField');
     if (filterField) {
         filterField.addEventListener('change', updateOperatorOptions);
 
