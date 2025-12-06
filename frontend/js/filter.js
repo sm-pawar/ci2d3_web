@@ -222,16 +222,28 @@ function updateOperatorOptions() {
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Filter form submission
-    document.getElementById('filterForm').addEventListener('submit', applyFilter);
+    const filterForm = document.getElementById('filterForm');
+    if (filterForm) {
+        filterForm.addEventListener('submit', applyFilter);
+    }
 
     // Clear filter button
-    document.getElementById('clearFilter').addEventListener('click', clearFilter);
+    const clearFilterBtn = document.getElementById('clearFilter');
+    if (clearFilterBtn) {
+        clearFilterBtn.addEventListener('click', clearFilter);
+    }
 
     // Close filter panel button
-    document.getElementById('closeFilter').addEventListener('click', function() {
-        toggleFilterPanel();
-    });
+    const closeFilterBtn = document.getElementById('closeFilter');
+    if (closeFilterBtn) {
+        closeFilterBtn.addEventListener('click', function() {
+            toggleFilterPanel();
+        });
+    }
 
     // Update operators when field changes
-    document.getElementById('filterField').addEventListener('change', updateOperatorOptions);
+    const filterField = document.getElementById('filterField');
+    if (filterField) {
+        filterField.addEventListener('change', updateOperatorOptions);
+    }
 });

@@ -80,17 +80,21 @@ body {
 
 /* Leaflet Map Panes - Force correct layer ordering */
 /* Basemap should be below WMS layer */
-.leaflet-basemap-pane {
+.custom-basemap-pane {
     z-index: 100 !important;
 }
 
-.leaflet-wms-pane {
+.custom-wms-pane {
     z-index: 900 !important;
 }
 
-/* Ensure tile pane doesn't override */
-.leaflet-tile-pane {
+/* Ensure default Leaflet panes don't override our custom panes */
+.leaflet-basemappane {
     z-index: 100 !important;
+}
+
+.leaflet-wmspane {
+    z-index: 900 !important;
 }
 
 /* Inspect Panel */

@@ -27,13 +27,18 @@ function initMap() {
     // Create custom panes for proper layer ordering
     // Basemap pane with lower z-index
     map.createPane('basemapPane');
-    map.getPane('basemapPane').style.zIndex = 100; // Lower than default tilePane (200)
-    map.getPane('basemapPane').className = 'leaflet-basemap-pane'; // Add class for CSS targeting
+    const basemapPane = map.getPane('basemapPane');
+    basemapPane.style.zIndex = 100; // Lower than default tilePane (200)
+    basemapPane.classList.add('custom-basemap-pane'); // Add custom class for CSS
 
     // WMS overlay pane with MUCH higher z-index to ensure it's on top
     map.createPane('wmsPane');
-    map.getPane('wmsPane').style.zIndex = 900; // Much higher than all default panes
-    map.getPane('wmsPane').className = 'leaflet-wms-pane'; // Add class for CSS targeting
+    const wmsOverlayPane = map.getPane('wmsPane');
+    wmsOverlayPane.style.zIndex = 900; // Much higher than all default panes
+    wmsOverlayPane.classList.add('custom-wms-pane'); // Add custom class for CSS
+
+    console.log('Basemap pane z-index:', basemapPane.style.zIndex);
+    console.log('WMS pane z-index:', wmsOverlayPane.style.zIndex);
 
     // Add base map layers - assign to basemapPane
     const baseLayers = {
