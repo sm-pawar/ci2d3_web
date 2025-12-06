@@ -293,11 +293,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (filterField) {
         filterField.addEventListener('change', updateOperatorOptions);
 
-        // Initialize operators on page load based on first selection
-        // This ensures operators are populated even before user changes field
-        if (filterField.options.length > 1) {
-            // Trigger update for the first real option (skip "Select attribute...")
-            updateOperatorOptions.call(filterField);
-        }
+        // DO NOT initialize operators on page load
+        // Let the dropdown stay empty until user selects a field
+        // This prevents any issues with undefined data-type
     }
 });
