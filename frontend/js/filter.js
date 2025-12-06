@@ -21,8 +21,8 @@ async function applyFilter(event) {
     // Determine value type based on field
     let processedValue = value;
 
-    // Convert numeric fields
-    const numericFields = ['carving_year', 'area_km2', 'perimeter_km', 'max_length_km', 'thickness_m', 'objectid', 'gid'];
+    // Convert numeric fields (based on actual database schema)
+    const numericFields = ['area', 'perimeter', 'length', 'lon', 'lat', 'gid'];
     if (numericFields.includes(field)) {
         processedValue = parseFloat(value);
         if (isNaN(processedValue)) {
