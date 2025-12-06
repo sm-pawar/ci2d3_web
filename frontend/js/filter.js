@@ -245,5 +245,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const filterField = document.getElementById('filterField');
     if (filterField) {
         filterField.addEventListener('change', updateOperatorOptions);
+
+        // Initialize operators on page load based on first selection
+        // This ensures operators are populated even before user changes field
+        if (filterField.options.length > 1) {
+            // Trigger update for the first real option (skip "Select attribute...")
+            updateOperatorOptions.call(filterField);
+        }
     }
 });
