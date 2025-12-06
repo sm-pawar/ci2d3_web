@@ -161,11 +161,14 @@ function updateOperatorOptions() {
     const operatorSelect = document.getElementById('filterOperator');
     const selectedOption = fieldSelect.options[fieldSelect.selectedIndex];
 
-    if (!selectedOption || !selectedOption.dataset.type) {
+    // If no valid option selected (e.g., "Select attribute..."), clear operators
+    if (!selectedOption || !selectedOption.value || !selectedOption.dataset.type) {
+        operatorSelect.innerHTML = '';
         return;
     }
 
     const dataType = selectedOption.dataset.type;
+    console.log('Selected field:', selectedOption.value, 'Data type:', dataType);
 
     // Clear existing options
     operatorSelect.innerHTML = '';
@@ -173,8 +176,9 @@ function updateOperatorOptions() {
     let operators = [];
 
     // Determine appropriate operators based on data type
-    if (dataType.includes('int') || dataType.includes('float') || dataType.includes('numeric')) {
+    if (dataType.includes('numeric') || dataType.includes('int') || dataType.includes('float') || dataType.includes('double')) {
         // Numeric fields
+        console.log('Using numeric operators');
         operators = [
             { value: '=', text: '=' },
             { value: '!=', text: '!=' },
@@ -183,8 +187,9 @@ function updateOperatorOptions() {
             { value: '>=', text: '>=' },
             { value: '<=', text: '<=' }
         ];
-    } else if (dataType.includes('char') || dataType.includes('text')) {
+    } else if (dataType.includes('char') || dataType.includes('text') || dataType.includes('varying')) {
         // Text fields
+        console.log('Using text operators');
         operators = [
             { value: '=', text: '=' },
             { value: '!=', text: '!=' },
@@ -193,6 +198,7 @@ function updateOperatorOptions() {
         ];
     } else if (dataType.includes('date') || dataType.includes('time')) {
         // Date/time fields
+        console.log('Using date operators');
         operators = [
             { value: '=', text: '=' },
             { value: '!=', text: '!=' },
@@ -202,13 +208,16 @@ function updateOperatorOptions() {
             { value: '<=', text: 'on or before' }
         ];
     } else {
-        // Default operators
+        // Default operators (fallback)
+        console.log('Using default operators for unknown type:', dataType);
         operators = [
             { value: '=', text: '=' },
             { value: '!=', text: '!=' },
             { value: 'LIKE', text: 'LIKE' }
         ];
     }
+
+    console.log('Adding', operators.length, 'operators');
 
     // Add operator options
     operators.forEach(op => {
