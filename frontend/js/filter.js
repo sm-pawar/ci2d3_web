@@ -221,54 +221,17 @@ function updateOperatorOptions() {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
-    // Note: Filter panel and navigation have been removed for embedding mode
-    // Filter functionality is preserved in code but UI elements are commented out
-
-    /*
     // Filter form submission
     document.getElementById('filterForm').addEventListener('submit', applyFilter);
 
     // Clear filter button
     document.getElementById('clearFilter').addEventListener('click', clearFilter);
 
-    // Toggle filter panel
-    document.getElementById('toggleFilter').addEventListener('click', function(e) {
-        e.preventDefault();
-        toggleFilterPanel();
-    });
-
-    // Close filter panel
+    // Close filter panel button
     document.getElementById('closeFilter').addEventListener('click', function() {
         toggleFilterPanel();
     });
 
     // Update operators when field changes
     document.getElementById('filterField').addEventListener('change', updateOperatorOptions);
-
-    // About button
-    document.getElementById('aboutBtn').addEventListener('click', function(e) {
-        e.preventDefault();
-        alert(`CI2D3 Ice Island Explorer v1.0
-
-A web-based GIS portal for visualizing and exploring Canadian Ice Island data.
-
-Features:
-- Interactive map with ice island locations
-- Attribute-based filtering
-- Feature inspection
-- WMS/WFS layer support
-
-Powered by:
-- Leaflet.js
-- GeoServer
-- PostGIS
-- Flask`);
-    });
-
-    // Layers toggle (placeholder)
-    document.getElementById('toggleLayers').addEventListener('click', function(e) {
-        e.preventDefault();
-        alert('Layer control is available in the top-right corner of the map');
-    });
-    */
 });

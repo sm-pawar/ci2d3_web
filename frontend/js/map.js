@@ -24,38 +24,50 @@ function initMap() {
         maxZoom: 18
     });
 
-    // Create custom pane for WMS overlay with higher z-index
-    map.createPane('wmsPane');
-    map.getPane('wmsPane').style.zIndex = 450; // Higher than overlayPane (400) and tilePane (200)
+    // Create custom panes for proper layer ordering
+    // Basemap pane with lower z-index
+    map.createPane('basemapPane');
+    map.getPane('basemapPane').style.zIndex = 100; // Lower than default tilePane (200)
 
-    // Add base map layers
+    // WMS overlay pane with higher z-index
+    map.createPane('wmsPane');
+    map.getPane('wmsPane').style.zIndex = 650; // Higher than all default panes
+
+    // Add base map layers - assign to basemapPane
     const baseLayers = {
         'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19,
-            zIndex: 1
+            pane: 'basemapPane'
         }),
         'CartoDB Positron': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
             subdomains: 'abcd',
             maxZoom: 19,
-            zIndex: 1
+            pane: 'basemapPane'
         }),
         'ESRI World Imagery': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
             maxZoom: 18,
-            zIndex: 1
+            pane: 'basemapPane'
         })
     };
 
     // Add default base layer
     baseLayers['CartoDB Positron'].addTo(map);
 
-    // Add WMS layer from GeoServer (will be on top due to custom pane)
+    // Add WMS layer from GeoServer (will be on top due to higher z-index pane)
     addWMSLayer();
 
     // Add layer control
-    L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
+    const layerControl = L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
+
+    // Ensure WMS layer stays on top when basemap is changed
+    map.on('baselayerchange', function() {
+        if (wmsLayer && wmsLayer._map) {
+            wmsLayer.bringToFront();
+        }
+    });
 
     // Add scale
     L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
@@ -81,10 +93,17 @@ function addWMSLayer() {
         attribution: 'CI2D3 Ice Island Data',
         opacity: 0.7,
         maxZoom: 18,
-        pane: 'wmsPane' // Use custom pane to ensure layer appears on top
+        pane: 'wmsPane' // Use custom high z-index pane (650) to ensure layer appears on top
     });
 
     wmsLayer.addTo(map);
+
+    // Explicitly bring WMS layer to front to ensure it's above basemap
+    setTimeout(() => {
+        if (wmsLayer && wmsLayer._map) {
+            wmsLayer.bringToFront();
+        }
+    }, 100);
 
     // Add click handler for WMS GetFeatureInfo
     map.on('click', function(e) {

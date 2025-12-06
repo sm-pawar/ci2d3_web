@@ -23,8 +23,65 @@
     <!-- Main Content - Fullscreen for embedding -->
     <div class="container-fluid h-100 p-0">
         <div class="row h-100 g-0">
-            <!-- Map Container - Full width -->
-            <div class="col-12 map-container" id="mapContainer">
+            <!-- Sidebar for Filters -->
+            <div class="col-md-3 sidebar" id="filterPanel">
+                <div class="panel-header">
+                    <h5>Filter Ice Islands</h5>
+                    <button type="button" class="btn-close" id="closeFilter"></button>
+                </div>
+
+                <div class="panel-content">
+                    <form id="filterForm">
+                        <div class="mb-3">
+                            <label for="filterField" class="form-label">Attribute</label>
+                            <select class="form-select" id="filterField" required>
+                                <option value="">Select attribute...</option>
+                                <option value="calvingloc">Calving Location</option>
+                                <option value="carving_year">Calving Year</option>
+                                <option value="area_km2">Area (km²)</option>
+                                <option value="perimeter_km">Perimeter (km)</option>
+                                <option value="max_length_km">Max Length (km)</option>
+                                <option value="thickness_m">Thickness (m)</option>
+                                <option value="status">Status</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="filterOperator" class="form-label">Operator</label>
+                            <select class="form-select" id="filterOperator" required>
+                                <option value="=">=</option>
+                                <option value="!=">!=</option>
+                                <option value=">">></option>
+                                <option value="<"><</option>
+                                <option value=">=">>=</option>
+                                <option value="<="><=</option>
+                                <option value="LIKE">LIKE</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="filterValue" class="form-label">Value</label>
+                            <input type="text" class="form-control" id="filterValue"
+                                   placeholder="Enter value..." required>
+                            <small class="form-text text-muted">
+                                Examples: PG, 2010, 100
+                            </small>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Apply Filter</button>
+                            <button type="button" class="btn btn-secondary" id="clearFilter">Clear Filter</button>
+                        </div>
+                    </form>
+
+                    <div id="filterResults" class="mt-3">
+                        <!-- Filter results will appear here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map Container -->
+            <div class="col-md-9 map-container" id="mapContainer">
                 <div id="map"></div>
 
                 <!-- Inspect Panel (initially hidden) -->
