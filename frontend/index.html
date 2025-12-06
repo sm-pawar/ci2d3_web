@@ -38,7 +38,7 @@
                                 <option value="">Select attribute...</option>
                                 <option value="calvingloc" data-type="character varying">Calving Location</option>
                                 <option value="calvingyr" data-type="character varying">Calving Year</option>
-                                <option value="area" data-type="numeric">Area</option>
+                                <option value="area" data-type="numeric" selected>Area</option>
                                 <option value="perimeter" data-type="numeric">Perimeter</option>
                                 <option value="length" data-type="numeric">Length</option>
                                 <option value="lon" data-type="numeric">Longitude</option>
@@ -60,7 +60,7 @@
                         <div class="mb-3">
                             <label for="filterValue" class="form-label">Value</label>
                             <input type="text" class="form-control" id="filterValue"
-                                   placeholder="Enter value..." required>
+                                   placeholder="Enter value..." value="100" required>
                             <small class="form-text text-muted">
                                 Examples: PG (calvingloc), 2010 (calvingyr), 100 (area)
                             </small>

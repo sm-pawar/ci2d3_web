@@ -293,8 +293,17 @@ document.addEventListener('DOMContentLoaded', function() {
     if (filterField) {
         filterField.addEventListener('change', updateOperatorOptions);
 
-        // DO NOT initialize operators on page load
-        // Let the dropdown stay empty until user selects a field
-        // This prevents any issues with undefined data-type
+        // Initialize operators on page load since we have "area" pre-selected
+        // This will populate the operator dropdown with numeric operators
+        updateOperatorOptions();
+
+        // After operators are populated, set default operator to ">"
+        setTimeout(() => {
+            const operatorSelect = document.getElementById('filterOperator');
+            if (operatorSelect) {
+                operatorSelect.value = '>';
+                console.log('Default filter initialized: area > 100');
+            }
+        }, 100);
     }
 });
