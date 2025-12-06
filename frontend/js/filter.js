@@ -161,14 +161,34 @@ function updateOperatorOptions() {
     const operatorSelect = document.getElementById('filterOperator');
     const selectedOption = fieldSelect.options[fieldSelect.selectedIndex];
 
+    // DEBUG: Log the entire option element
+    console.log('DEBUG: Selected option element:', selectedOption);
+    console.log('DEBUG: Option HTML:', selectedOption.outerHTML);
+    console.log('DEBUG: All attributes:');
+    for (let i = 0; i < selectedOption.attributes.length; i++) {
+        const attr = selectedOption.attributes[i];
+        console.log(`  ${attr.name} = ${attr.value}`);
+    }
+    console.log('DEBUG: dataset object:', selectedOption.dataset);
+    console.log('DEBUG: dataset.type:', selectedOption.dataset.type);
+    console.log('DEBUG: getAttribute("data-type"):', selectedOption.getAttribute('data-type'));
+
     // If no valid option selected (e.g., "Select attribute..."), clear operators
-    if (!selectedOption || !selectedOption.value || !selectedOption.dataset.type) {
+    if (!selectedOption || !selectedOption.value) {
+        console.log('DEBUG: No valid option selected');
         operatorSelect.innerHTML = '';
         return;
     }
 
-    const dataType = selectedOption.dataset.type;
+    // Try both methods to get data-type
+    const dataType = selectedOption.dataset.type || selectedOption.getAttribute('data-type');
     console.log('Selected field:', selectedOption.value, 'Data type:', dataType);
+
+    if (!dataType) {
+        console.error('ERROR: No data-type attribute found! Check HTML file in browser Inspector.');
+        operatorSelect.innerHTML = '';
+        return;
+    }
 
     // Clear existing options
     operatorSelect.innerHTML = '';
