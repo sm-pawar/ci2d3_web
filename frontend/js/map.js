@@ -10,7 +10,9 @@
 let map;
 let wmsLayer;
 let filteredLayer;
+let lineageLayer;
 let currentFilteredData = null;
+let currentLineageData = null;
 
 /**
  * Initialize the Leaflet map
@@ -217,9 +219,174 @@ function clearFilteredLayer() {
         currentFilteredData = null;
     }
 
+    // Clear lineage layer as well
+    clearLineageLayer();
+
     // Restore WMS layer
     if (wmsLayer && !wmsLayer._map) {
         wmsLayer.addTo(map);
+    }
+}
+
+/**
+ * Add lineage layer to map with special styling
+ * Shows all ice islands in the same lineage tree
+ */
+function addLineageLayer(geojson, lineageValue) {
+    // Remove existing lineage layer
+    clearLineageLayer();
+
+    // Remove existing filtered layer
+    if (filteredLayer) {
+        map.removeLayer(filteredLayer);
+        filteredLayer = null;
+    }
+
+    // Store lineage data
+    currentLineageData = geojson;
+
+    // Sort features by scene date to establish order (if available)
+    const sortedFeatures = [...geojson.features].sort((a, b) => {
+        const dateA = a.properties.scenedate || a.properties.scene_date || '';
+        const dateB = b.properties.scenedate || b.properties.scene_date || '';
+        return dateA.localeCompare(dateB);
+    });
+
+    // Create the lineage layer group
+    lineageLayer = L.layerGroup();
+
+    // Add connection lines between consecutive features (parent-child links)
+    if (sortedFeatures.length > 1) {
+        const lineCoords = [];
+        sortedFeatures.forEach(feature => {
+            if (feature.geometry && feature.geometry.type === 'Polygon') {
+                // Get centroid of polygon
+                const coords = feature.geometry.coordinates[0];
+                const centroid = getPolygonCentroid(coords);
+                lineCoords.push([centroid[1], centroid[0]]); // [lat, lng]
+            }
+        });
+
+        if (lineCoords.length > 1) {
+            const connectionLine = L.polyline(lineCoords, {
+                color: '#ff6b35',
+                weight: 3,
+                opacity: 0.8,
+                dashArray: '10, 5',
+                className: 'lineage-connection'
+            });
+            lineageLayer.addLayer(connectionLine);
+        }
+    }
+
+    // Add polygon features with numbered markers
+    sortedFeatures.forEach((feature, index) => {
+        const isFirst = index === 0;
+        const isLast = index === sortedFeatures.length - 1;
+
+        // Determine color based on position in lineage
+        let fillColor, borderColor;
+        if (isFirst) {
+            // Parent/origin - green
+            fillColor = '#28a745';
+            borderColor = '#1e7e34';
+        } else if (isLast) {
+            // Most recent child - blue
+            fillColor = '#007bff';
+            borderColor = '#0056b3';
+        } else {
+            // Intermediate - orange
+            fillColor = '#fd7e14';
+            borderColor = '#e85d04';
+        }
+
+        // Create polygon layer
+        const polygonLayer = L.geoJSON(feature, {
+            style: {
+                color: borderColor,
+                weight: 3,
+                opacity: 1,
+                fillColor: fillColor,
+                fillOpacity: 0.5
+            },
+            onEachFeature: function(f, layer) {
+                layer.on('click', function() {
+                    displayFeatureInfo(f);
+                });
+
+                // Add tooltip with sequence number
+                const tooltip = `#${index + 1} - ${f.properties.scenedate || 'Unknown date'}`;
+                layer.bindTooltip(tooltip, {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'lineage-tooltip'
+                });
+            }
+        });
+
+        lineageLayer.addLayer(polygonLayer);
+
+        // Add numbered marker at centroid
+        if (feature.geometry && feature.geometry.type === 'Polygon') {
+            const coords = feature.geometry.coordinates[0];
+            const centroid = getPolygonCentroid(coords);
+            const marker = L.marker([centroid[1], centroid[0]], {
+                icon: L.divIcon({
+                    className: 'lineage-marker',
+                    html: `<div class="lineage-number" style="background-color: ${borderColor}">${index + 1}</div>`,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                })
+            });
+            lineageLayer.addLayer(marker);
+        }
+    });
+
+    // Add layer to map
+    lineageLayer.addTo(map);
+
+    // Zoom to lineage features
+    const allPolygons = L.geoJSON(geojson);
+    if (allPolygons.getBounds().isValid()) {
+        map.fitBounds(allPolygons.getBounds(), { padding: [50, 50] });
+    }
+
+    // Hide WMS layer when showing lineage layer
+    if (wmsLayer && wmsLayer._map) {
+        map.removeLayer(wmsLayer);
+    }
+
+    console.log(`Lineage layer added with ${geojson.features.length} features for lineage: ${lineageValue}`);
+}
+
+/**
+ * Calculate centroid of a polygon
+ */
+function getPolygonCentroid(coords) {
+    let sumX = 0, sumY = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+        sumX += coords[i][0];
+        sumY += coords[i][1];
+    }
+    const count = coords.length - 1;
+    return [sumX / count, sumY / count];
+}
+
+/**
+ * Clear lineage layer
+ */
+function clearLineageLayer() {
+    if (lineageLayer) {
+        map.removeLayer(lineageLayer);
+        lineageLayer = null;
+        currentLineageData = null;
+    }
+
+    // Reset Track Lineage button
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
+    if (trackLineageBtn) {
+        trackLineageBtn.classList.remove('active');
+        trackLineageBtn.textContent = 'Track Lineage';
     }
 }
 

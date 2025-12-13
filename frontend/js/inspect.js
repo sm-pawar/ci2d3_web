@@ -3,19 +3,40 @@
  * Handles feature inspection and information display
  */
 
+// Store the currently inspected feature for lineage tracking
+let currentInspectedFeature = null;
+
 /**
  * Display feature information in the inspect panel
  */
 function displayFeatureInfo(feature) {
     const panel = document.getElementById('inspectPanel');
     const content = document.getElementById('inspectContent');
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
 
     if (!feature || !feature.properties) {
         content.innerHTML = '<p class="text-muted">No feature data available</p>';
+        currentInspectedFeature = null;
+        if (trackLineageBtn) {
+            trackLineageBtn.disabled = true;
+            trackLineageBtn.classList.remove('active');
+            trackLineageBtn.textContent = 'Track Lineage';
+        }
         return;
     }
 
+    // Store the current feature for lineage tracking
+    currentInspectedFeature = feature;
+
     const props = feature.properties;
+
+    // Enable the Track Lineage button if lineage data is available
+    if (trackLineageBtn) {
+        const hasLineage = props.lineage || props.obs || props.pobs || props['p-obs'];
+        trackLineageBtn.disabled = !hasLineage;
+        trackLineageBtn.classList.remove('active');
+        trackLineageBtn.textContent = 'Track Lineage';
+    }
 
     // Build HTML for feature properties
     let html = '<div class="feature-info">';
@@ -127,6 +148,82 @@ function getCalvingLocationName(code) {
 function closeInspectPanel() {
     const panel = document.getElementById('inspectPanel');
     panel.classList.remove('active');
+
+    // Reset the Track Lineage button state
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
+    if (trackLineageBtn) {
+        trackLineageBtn.classList.remove('active');
+        trackLineageBtn.textContent = 'Track Lineage';
+    }
+}
+
+/**
+ * Track lineage for the currently inspected feature
+ * Queries all ice islands that share the same lineage
+ */
+async function trackLineage() {
+    if (!currentInspectedFeature || !currentInspectedFeature.properties) {
+        console.error('No feature selected for lineage tracking');
+        return;
+    }
+
+    const props = currentInspectedFeature.properties;
+
+    // Get the lineage value - try different field names
+    const lineageValue = props.lineage || props.obs || props.pobs || props['p-obs'];
+
+    if (!lineageValue) {
+        alert('No lineage information available for this ice island');
+        return;
+    }
+
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
+
+    showLoading(true);
+
+    try {
+        // Query the API to filter by lineage
+        const filterRequest = {
+            field: 'lineage',
+            operator: '=',
+            value: lineageValue
+        };
+
+        const response = await fetch(`${CONFIG.apiUrl}/filter/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(filterRequest)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.features && data.features.length > 0) {
+            // Add lineage layer to map with special styling
+            addLineageLayer(data, lineageValue);
+
+            // Update button to show active state
+            if (trackLineageBtn) {
+                trackLineageBtn.classList.add('active');
+                trackLineageBtn.textContent = `Showing ${data.count} in lineage`;
+            }
+
+            console.log(`Found ${data.count} ice islands in lineage: ${lineageValue}`);
+        } else {
+            alert('No related ice islands found in this lineage');
+        }
+
+    } catch (error) {
+        console.error('Error tracking lineage:', error);
+        alert(`Error tracking lineage: ${error.message}`);
+    } finally {
+        showLoading(false);
+    }
 }
 
 /**
@@ -214,6 +311,12 @@ function populateAttributeSelect(attributes) {
 document.addEventListener('DOMContentLoaded', function() {
     // Close inspect panel button
     document.getElementById('closeInspect').addEventListener('click', closeInspectPanel);
+
+    // Track Lineage button
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
+    if (trackLineageBtn) {
+        trackLineageBtn.addEventListener('click', trackLineage);
+    }
 
     // Fetch available attributes
     fetchAttributes();

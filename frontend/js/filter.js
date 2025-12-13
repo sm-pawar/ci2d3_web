@@ -123,8 +123,15 @@ function clearFilter() {
     resultsDiv.classList.remove('active');
     resultsDiv.innerHTML = '';
 
-    // Clear filtered layer on map
+    // Clear filtered layer on map (this also clears lineage layer)
     clearFilteredLayer();
+
+    // Reset Track Lineage button if visible
+    const trackLineageBtn = document.getElementById('trackLineageBtn');
+    if (trackLineageBtn) {
+        trackLineageBtn.classList.remove('active');
+        trackLineageBtn.textContent = 'Track Lineage';
+    }
 }
 
 /**

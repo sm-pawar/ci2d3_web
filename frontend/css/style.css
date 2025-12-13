@@ -101,7 +101,7 @@ body {
 .inspect-panel {
     position: absolute;
     top: 20px;
-    right: 20px;
+    left: 20px;
     width: 350px;
     max-height: 80%;
     background: white;
@@ -117,8 +117,103 @@ body {
 }
 
 .inspect-panel .panel-content {
-    max-height: 500px;
+    max-height: 400px;
     overflow-y: auto;
+}
+
+.inspect-panel .panel-footer {
+    padding: 1rem;
+    border-top: 1px solid #dee2e6;
+    background-color: #f8f9fa;
+}
+
+.btn-track-lineage {
+    width: 100%;
+    font-weight: 500;
+}
+
+.btn-track-lineage:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Lineage tracking active state */
+.btn-track-lineage.active {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+/* Lineage info display */
+.lineage-info {
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+    background-color: #e7f3ff;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.lineage-info strong {
+    color: #0d6efd;
+}
+
+/* Lineage layer markers */
+.lineage-marker {
+    background: transparent;
+    border: none;
+}
+
+.lineage-number {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    border: 2px solid white;
+}
+
+.lineage-tooltip {
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.lineage-tooltip::before {
+    border-top-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Lineage legend */
+.lineage-legend {
+    position: absolute;
+    bottom: 30px;
+    left: 20px;
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    font-size: 0.85rem;
+}
+
+.lineage-legend-item {
+    display: flex;
+    align-items: center;
+    margin: 3px 0;
+}
+
+.lineage-legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin-right: 8px;
+    border: 1px solid #333;
 }
 
 /* Feature Properties Display */
@@ -254,7 +349,7 @@ body {
 
     .inspect-panel {
         width: 90%;
-        right: 5%;
+        left: 5%;
     }
 }
 
