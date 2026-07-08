@@ -115,8 +115,14 @@ function showFilterMessage(message, type = 'info') {
  * Clear filter and restore original layer
  */
 function clearFilter() {
+    // Restore all field options before resetting the form
+    restoreFieldOptions();
+
     // Reset form
     document.getElementById('filterForm').reset();
+
+    // Re-apply restriction so the dropdown returns to its default state
+    restrictFieldOptions();
 
     // Clear results
     const resultsDiv = document.getElementById('filterResults');
@@ -248,6 +254,31 @@ function updateOperatorOptions() {
     });
 }
 
+/**
+ * Hide non-default field options on page load.
+ * Options with data-default="true" in the HTML remain visible;
+ * all others are hidden via the CSS display property.
+ */
+function restrictFieldOptions() {
+    const filterField = document.getElementById('filterField');
+    Array.from(filterField.options).forEach(option => {
+        // Always keep the placeholder ("Select attribute...") and default fields
+        if (option.value && !option.dataset.default) {
+            option.hidden = true;
+        }
+    });
+}
+
+/**
+ * Restore all field options (called by clearFilter).
+ */
+function restoreFieldOptions() {
+    const filterField = document.getElementById('filterField');
+    Array.from(filterField.options).forEach(option => {
+        option.hidden = false;
+    });
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // DEBUG: Add mutation observer to catch when data-type attributes are changed
@@ -268,6 +299,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Monitoring option:', option.value, 'data-type:', option.getAttribute('data-type'));
         });
     }
+
+    // Restrict field dropdown to default fields on page load
+    restrictFieldOptions();
 
     // Filter form submission
     const filterForm = document.getElementById('filterForm');
