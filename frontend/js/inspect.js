@@ -159,62 +159,8 @@ async function fetchFeatureById(featureId) {
     }
 }
 
-/**
- * Get available attributes from API
- */
-async function fetchAttributes() {
-    try {
-        const response = await fetch(`${CONFIG.apiUrl}/inspect/attributes`);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        populateAttributeSelect(data.attributes);
-
-    } catch (error) {
-        console.error('Error fetching attributes:', error);
-    }
-}
-
-/**
- * Populate filter field select with available attributes
- */
-function populateAttributeSelect(attributes) {
-    const select = document.getElementById('filterField');
-
-    // Clear existing options except the first one
-    while (select.options.length > 1) {
-        select.remove(1);
-    }
-
-    // Add attribute options
-    attributes.forEach(attr => {
-        if (attr.name !== 'geom' && attr.name !== 'gid') {
-            const option = document.createElement('option');
-            option.value = attr.name;
-            option.textContent = formatPropertyLabel(attr.name);
-            // Fix: API returns 'type', not 'data_type'
-            option.dataset.type = attr.type;  // Changed from attr.data_type
-            select.appendChild(option);
-        }
-    });
-
-    // After populating, if 'area' option exists, select it by default
-    const areaOption = Array.from(select.options).find(opt => opt.value === 'area');
-    if (areaOption) {
-        areaOption.selected = true;
-        // Trigger change event to update operators
-        select.dispatchEvent(new Event('change'));
-    }
-}
-
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Close inspect panel button
     document.getElementById('closeInspect').addEventListener('click', closeInspectPanel);
-
-    // Fetch available attributes
-    fetchAttributes();
 });
