@@ -194,6 +194,18 @@ SECRET_KEY=YOUR-RANDOM-SECRET-KEY
 ### Step 3: Build and Start Services
 
 ```bash
+# Check current buildx version
+docker buildx version
+
+# Download and install the latest buildx binary
+BUILDX_VERSION=$(curl -s https://api.github.com/repos/docker/buildx/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+mkdir -p ~/.docker/cli-plugins
+curl -Lo ~/.docker/cli-plugins/docker-buildx "https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}/buildx-v${BUILDX_VERSION}.linux-amd64"
+chmod +x ~/.docker/cli-plugins/docker-buildx
+
+# Verify installation
+docker buildx version
+
 # Build Docker images (this may take 10-15 minutes)
 docker-compose build
 
