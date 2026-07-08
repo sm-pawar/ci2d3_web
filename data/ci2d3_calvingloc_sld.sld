@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xmlns:se="http://www.opengis.net/se" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1.1.0" xmlns:ogc="http://www.opengis.net/ogc" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd">
+<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1.0" xmlns:ogc="http://www.opengis.net/ogc" xmlns:se="http://www.opengis.net/se">
   <NamedLayer>
-    <se:Name>CCIN12678_20181113_CI2D3_01</se:Name>
+    <se:Name>240804_ci2d3v1_epsg5937</se:Name>
     <UserStyle>
-      <se:Name>CCIN12678_20181113_CI2D3_01</se:Name>
+      <se:Name>240804_ci2d3v1_epsg5937</se:Name>
       <se:FeatureTypeStyle>
         <se:Rule>
           <se:Name>CG</se:Name>
@@ -18,7 +18,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#90de4c</se:SvgParameter>
+              <se:SvgParameter name="fill">#7770c8</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -40,7 +40,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#40d77a</se:SvgParameter>
+              <se:SvgParameter name="fill">#7fdf1f</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -62,7 +62,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#debd76</se:SvgParameter>
+              <se:SvgParameter name="fill">#cc7cd2</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -84,7 +84,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#6154da</se:SvgParameter>
+              <se:SvgParameter name="fill">#2ab7de</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -106,7 +106,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#dc25e6</se:SvgParameter>
+              <se:SvgParameter name="fill">#77d69a</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -128,7 +128,7 @@
           </ogc:Filter>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#d51c3e</se:SvgParameter>
+              <se:SvgParameter name="fill">#e09813</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
@@ -145,7 +145,7 @@
           <se:ElseFilter xmlns:se="http://www.opengis.net/se"/>
           <se:PolygonSymbolizer>
             <se:Fill>
-              <se:SvgParameter name="fill">#79bace</se:SvgParameter>
+              <se:SvgParameter name="fill">#ce4a65</se:SvgParameter>
             </se:Fill>
             <se:Stroke>
               <se:SvgParameter name="stroke">#232323</se:SvgParameter>
