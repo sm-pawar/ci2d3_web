@@ -255,6 +255,18 @@ function addLineageLayer(geojson, lineageValue) {
     // Create the lineage layer group
     lineageLayer = L.layerGroup();
 
+    // Numbered markers are only useful (and only performant) for modestly
+    // sized lineages. Large lineages still render their polygons and the
+    // drift connector line.
+    const MAX_LINEAGE_MARKERS = 250;
+    const showMarkers = sortedFeatures.length <= MAX_LINEAGE_MARKERS;
+    if (!showMarkers) {
+        console.log(
+            `Lineage has ${sortedFeatures.length} features; ` +
+            `skipping numbered markers (limit ${MAX_LINEAGE_MARKERS}).`
+        );
+    }
+
     // Add connection lines between consecutive features (parent-child links)
     if (sortedFeatures.length > 1) {
         const lineCoords = [];
@@ -324,8 +336,10 @@ function addLineageLayer(geojson, lineageValue) {
 
         lineageLayer.addLayer(polygonLayer);
 
-        // Add numbered marker at centroid
-        const centroid = getFeatureCentroid(feature);
+        // Add numbered marker at centroid.
+        // Skipped for large lineages: thousands of DivIcon markers stall the
+        // browser and the numbers become unreadable at that density anyway.
+        const centroid = showMarkers ? getFeatureCentroid(feature) : null;
         if (centroid) {
             const marker = L.marker([centroid[1], centroid[0]], {
                 icon: L.divIcon({

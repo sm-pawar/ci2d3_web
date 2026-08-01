@@ -114,9 +114,12 @@
             crossorigin="anonymous"></script>
 
     <!-- Custom JS -->
-    <script src="js/config.js"></script>
-    <script src="js/map.js"></script>
-    <script src="js/inspect.js"></script>
-    <script src="js/filter.js"></script>
+    <!-- The ?v= cache-buster must be bumped whenever these files change.
+         Tomcat serves these with caching enabled, so without it browsers
+         keep running stale JS after a redeploy. -->
+    <script src="js/config.js?v=2"></script>
+    <script src="js/map.js?v=2"></script>
+    <script src="js/inspect.js?v=2"></script>
+    <script src="js/filter.js?v=2"></script>
 </body>
 </html>

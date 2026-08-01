@@ -95,6 +95,18 @@ echo ""
 echo "Data loaded successfully!"
 echo ""
 
+# Create btree indexes on the lineage graph columns.
+# ogr2ogr only creates the GIST spatial index on geom. Without these, the
+# recursive lineage traversal in /api/lineage sequentially scans the whole
+# table on every step and takes seconds-to-minutes instead of milliseconds.
+echo "Creating lineage indexes (inst, lineage)..."
+PGPASSWORD=$DB_PASSWORD psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -c \
+    "CREATE INDEX IF NOT EXISTS idx_${TABLE_NAME}_inst ON $TABLE_NAME(inst);
+     CREATE INDEX IF NOT EXISTS idx_${TABLE_NAME}_lineage ON $TABLE_NAME(lineage);
+     ANALYZE $TABLE_NAME;"
+echo "Indexes created."
+echo ""
+
 # Get table statistics
 echo "Table Statistics:"
 RECORD_COUNT=$(PGPASSWORD=$DB_PASSWORD psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -tAc \

@@ -187,16 +187,27 @@ async function trackLineage() {
     showLoading(true);
 
     try {
-        // Request the full connected lineage tree (ancestors + descendants).
+        // "chain" = this polygon's own lineage line: all of its ancestors plus
+        // all of its descendants. (mode "all" would return the entire connected
+        // component, which averages ~2,800 polygons on this dataset.)
         const response = await fetch(`${CONFIG.apiUrl}/lineage/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ inst: inst, mode: 'all' })
+            body: JSON.stringify({ inst: inst, mode: 'chain' })
         });
 
         if (!response.ok) {
+            // A 404 here means the API container is still running a build
+            // without the lineage blueprint registered.
+            if (response.status === 404) {
+                throw new Error(
+                    'The /api/lineage endpoint was not found. The Flask API is ' +
+                    'running an older build - restart it with: ' +
+                    'docker-compose restart flask-api'
+                );
+            }
             let message = `HTTP error! status: ${response.status}`;
             try {
                 const err = await response.json();
@@ -211,13 +222,21 @@ async function trackLineage() {
             // Add lineage layer to map with special styling
             addLineageLayer(data, inst);
 
+            const meta = data.lineage || {};
+
             // Update button to show active state
             if (trackLineageBtn) {
                 trackLineageBtn.classList.add('active');
-                trackLineageBtn.textContent = `Showing ${data.count} in lineage`;
+                trackLineageBtn.textContent = meta.truncated
+                    ? `Showing ${data.count} of ${meta.total} in lineage`
+                    : `Showing ${data.count} in lineage`;
             }
 
-            console.log(`Found ${data.count} ice islands in lineage of: ${inst}`);
+            console.log(
+                `Lineage of ${inst}: showing ${data.count}` +
+                (meta.total ? ` of ${meta.total} total` : '') +
+                (meta.truncated ? ' (truncated)' : '')
+            );
         } else {
             alert('No related ice islands found in this lineage');
         }

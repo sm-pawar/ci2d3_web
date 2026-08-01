@@ -19,11 +19,15 @@ def track_lineage():
     Request body:
         {
             "inst": "20080713_235233_es_0_JWC",
-            "mode": "all"   # optional: "all" (default) | "after" | "before"
+            "mode": "chain"   # optional, default "chain".
+                              # "chain"  = ancestors + descendants of this obs
+                              # "after"  = descendants only
+                              # "before" = ancestors only
+                              # "all"    = whole connected component (large)
         }
 
     Returns:
-        GeoJSON FeatureCollection of all ice island polygons in the lineage.
+        GeoJSON FeatureCollection of the ice island polygons in the lineage.
     """
     try:
         data = request.get_json()
@@ -34,7 +38,7 @@ def track_lineage():
             }), 400
 
         inst = data.get('inst')
-        mode = data.get('mode', 'all')
+        mode = data.get('mode', 'chain')
 
         result = lineage_service.get_lineage(inst, mode=mode)
         return jsonify(result), 200
@@ -67,7 +71,7 @@ def track_lineage_get(inst):
         GeoJSON FeatureCollection of all ice island polygons in the lineage.
     """
     try:
-        mode = request.args.get('mode', 'all')
+        mode = request.args.get('mode', 'chain')
         result = lineage_service.get_lineage(inst, mode=mode)
         return jsonify(result), 200
 

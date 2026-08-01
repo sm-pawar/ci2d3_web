@@ -24,11 +24,20 @@ behaviour used for the website's "Track Lineage" button (mode="all").
 
 Modes
 -----
-- "all"    : the full connected lineage tree (ancestors + descendants),
-             matching the reference undirected subcomponent behaviour.
+- "chain"  : (default) this observation's own lineage line -- all of its
+             ancestors plus all of its descendants. This is what "the lineage
+             of this polygon" means for the map UI.
 - "after"  : descendants only (this observation and everything that fractured
              / drifted from it afterwards).
 - "before" : ancestors only (this observation and everything it came from).
+- "all"    : the entire connected component, i.e. every observation reachable
+             by ignoring edge direction. This matches the reference
+             `subcomponent()` behaviour literally, but note the reference
+             builds the graph with directed=False, which makes its after()
+             and before() both collapse to the whole component. On this
+             dataset a component averages ~2,800 observations (max ~6,300)
+             because every fracture descendant of a calving event is joined
+             into one component, so "all" is offered but is not the default.
 """
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -36,15 +45,54 @@ from sqlalchemy.pool import NullPool
 from config import Config
 
 
-# Join condition for the recursive traversal, keyed by mode.
-# t = the lineage tree accumulated so far, i = candidate row being tested.
-#   i.lineage = t.inst  -> i is a CHILD of a node already in the tree (descend)
-#   i.inst    = t.lineage -> i is the PARENT of a node already in the tree (ascend)
+# Join condition for the single-direction recursive traversals, keyed by mode.
+# t = the lineage set accumulated so far, i = candidate row being tested.
+#   i.lineage = t.inst    -> i is a CHILD of a node already found (descend)
+#   i.inst    = t.lineage -> i is the PARENT of a node already found (ascend)
 _MODE_JOIN_CONDITIONS = {
     'all': '(i.lineage = t.inst OR i.inst = t.lineage)',
     'after': 'i.lineage = t.inst',
     'before': 'i.inst = t.lineage',
 }
+
+# "chain" needs two independent traversals (up and down) unioned together.
+# Doing it with a single OR'd join instead would walk sideways into cousin
+# branches and degenerate into the whole connected component.
+_CHAIN_CTE = """
+    WITH RECURSIVE ancestors AS (
+        SELECT inst, lineage FROM {table} WHERE inst = :inst
+        UNION
+        SELECT i.inst, i.lineage
+        FROM {table} i
+        JOIN ancestors a ON i.inst = a.lineage
+    ),
+    descendants AS (
+        SELECT inst, lineage FROM {table} WHERE inst = :inst
+        UNION
+        SELECT i.inst, i.lineage
+        FROM {table} i
+        JOIN descendants d ON i.lineage = d.inst
+    ),
+    lineage_tree AS (
+        SELECT inst FROM ancestors
+        UNION
+        SELECT inst FROM descendants
+    )
+"""
+
+_SINGLE_CTE = """
+    WITH RECURSIVE lineage_tree AS (
+        SELECT inst, lineage FROM {table} WHERE inst = :inst
+        UNION
+        SELECT i.inst, i.lineage
+        FROM {table} i
+        JOIN lineage_tree t ON {join_condition}
+    )
+"""
+
+# Safety cap: a single lineage can span thousands of polygons. Returning them
+# all would stall the browser, so cap the response and report the true total.
+DEFAULT_MAX_FEATURES = 2000
 
 # Columns that must never be exposed as feature properties:
 #   - geom     : the real PostGIS geometry (returned separately as GeoJSON)
@@ -82,68 +130,78 @@ class LineageService:
         """)
         return [row[0] for row in session.execute(columns_query).fetchall()]
 
-    def get_lineage(self, inst, mode='all'):
+    def get_lineage(self, inst, mode='chain', max_features=DEFAULT_MAX_FEATURES):
         """
-        Return the lineage tree for a given ice island instance as GeoJSON.
+        Return the lineage of a given ice island instance as GeoJSON.
 
         Args:
             inst: The `inst` identifier of the clicked/selected ice island.
-            mode: One of "all" (full connected tree, default), "after"
-                  (descendants), or "before" (ancestors).
+            mode: "chain" (default, ancestors + descendants of this
+                  observation), "after" (descendants), "before" (ancestors),
+                  or "all" (entire connected component).
+            max_features: Safety cap on returned features.
 
         Returns:
-            GeoJSON FeatureCollection of all ice island polygons in the lineage,
-            ordered chronologically by scenedate. Includes a "lineage" metadata
-            block describing the query.
+            GeoJSON FeatureCollection of the lineage polygons, ordered
+            chronologically by scenedate. The "lineage" metadata block reports
+            the true total and whether the response was truncated.
         """
-        mode = (mode or 'all').lower()
-        if mode not in _MODE_JOIN_CONDITIONS:
-            raise ValueError(
-                f"Invalid mode: {mode}. Choose from {list(_MODE_JOIN_CONDITIONS)}"
-            )
+        mode = (mode or 'chain').lower()
+        valid_modes = ['chain'] + list(_MODE_JOIN_CONDITIONS)
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid mode: {mode}. Choose from {valid_modes}")
 
         if not inst or not str(inst).strip():
             raise ValueError("An 'inst' identifier is required for lineage tracking.")
 
-        join_condition = _MODE_JOIN_CONDITIONS[mode]
+        try:
+            limit = int(max_features)
+        except (TypeError, ValueError):
+            limit = DEFAULT_MAX_FEATURES
+        limit = max(1, min(limit, 10000))
+
+        # Build the traversal CTE for the requested mode. Both variants use
+        # UNION (not UNION ALL) so already-visited rows are dropped, which
+        # guarantees termination even if the data contains a cycle.
+        if mode == 'chain':
+            cte = _CHAIN_CTE.format(table=self.TABLE)
+        else:
+            cte = _SINGLE_CTE.format(
+                table=self.TABLE,
+                join_condition=_MODE_JOIN_CONDITIONS[mode]
+            )
 
         session = self.get_session()
         try:
             column_names = self._get_property_columns(session)
             columns_str = ', '.join(column_names)
 
-            # Recursive CTE that walks the parent/child edges starting from the
-            # selected instance. Uses UNION (not UNION ALL) so already-visited
-            # rows are de-duplicated, which guarantees termination even if the
-            # data contains a cycle.
             query = text(f"""
-                WITH RECURSIVE lineage_tree AS (
-                    SELECT inst, lineage
-                    FROM {self.TABLE}
-                    WHERE inst = :inst
-                    UNION
-                    SELECT i.inst, i.lineage
-                    FROM {self.TABLE} i
-                    JOIN lineage_tree t ON {join_condition}
-                )
+                {cte}
                 SELECT
                     gid,
                     ST_AsGeoJSON(ST_Transform(geom, 4326))::json AS geometry,
-                    {columns_str}
+                    {columns_str},
+                    COUNT(*) OVER () AS total_in_lineage
                 FROM {self.TABLE}
                 WHERE inst IN (SELECT inst FROM lineage_tree)
                 ORDER BY scenedate, gid
+                LIMIT :limit
             """)
 
-            results = session.execute(query, {'inst': inst}).fetchall()
+            results = session.execute(
+                query, {'inst': inst, 'limit': limit}
+            ).fetchall()
 
             features = []
+            total = 0
             for row in results:
-                # row[0] = gid, row[1] = geometry, row[2:] = property columns
+                # row[0]=gid, row[1]=geometry, then property columns, then total
                 properties = {
                     col_name: row[i + 2]
                     for i, col_name in enumerate(column_names)
                 }
+                total = row[len(column_names) + 2]
                 features.append({
                     'type': 'Feature',
                     'id': row[0],
@@ -157,7 +215,9 @@ class LineageService:
                 'count': len(features),
                 'lineage': {
                     'inst': inst,
-                    'mode': mode
+                    'mode': mode,
+                    'total': total,
+                    'truncated': total > len(features)
                 }
             }
 

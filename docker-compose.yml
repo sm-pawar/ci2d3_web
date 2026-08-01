@@ -53,7 +53,11 @@ services:
     volumes:
       - geoserver_data:/opt/geoserver_data
       - ./data:/opt/data:ro
-      - ./website:/website
+      # Serve the frontend live from the repo. The Dockerfile also COPYs
+      # ./frontend into the ROOT webapp at build time, but without this mount
+      # edits to frontend/ only take effect after a full `docker-compose build`,
+      # which silently leaves stale JS in the browser.
+      - ./frontend:/usr/local/tomcat/webapps/ROOT
     ports:
       - "8080:8080"
     depends_on:
@@ -78,6 +82,10 @@ services:
     environment:
       FLASK_APP: app.py
       FLASK_ENV: development
+      # Flask 3.x ignores FLASK_ENV, so without this the dev reloader never
+      # runs and newly added routes (e.g. /api/lineage) are not registered
+      # until the container is restarted.
+      FLASK_DEBUG: 1
       DB_HOST: postgis
       DB_PORT: 5432
       DB_NAME: ci2d3_db
