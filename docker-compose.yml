@@ -14,8 +14,8 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgis_data:/var/lib/postgresql/data
-      - ./data:/data:ro
-      - ./scripts:/scripts:ro
+      - ./data:/data
+      - ./scripts:/scripts
     ports:
       - "5432:5432"
     networks:

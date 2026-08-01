@@ -1,0 +1,12 @@
+name: ci2d3env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pandas
+  - pandasql
+  - geopandas
+  - python-igraph
+  - matplotlib
+  - seaborn
