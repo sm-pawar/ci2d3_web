@@ -10,6 +10,7 @@ import os
 # Import blueprints
 from routes.filter_routes import filter_bp
 from routes.inspect_routes import inspect_bp
+from routes.lineage_routes import lineage_bp
 
 
 def create_app(config_name=None):
@@ -33,6 +34,7 @@ def create_app(config_name=None):
     # Register blueprints
     app.register_blueprint(inspect_bp, url_prefix='/api/inspect')
     app.register_blueprint(filter_bp, url_prefix='/api/filter')
+    app.register_blueprint(lineage_bp, url_prefix='/api/lineage')
 
     # Health check endpoint
     @app.route('/health', methods=['GET'])
@@ -55,7 +57,8 @@ def create_app(config_name=None):
                 'health': '/health',
                 'inspect': '/api/inspect/<feature_id>',
                 'filter': '/api/filter',
-                'attributes': '/api/inspect/attributes'
+                'attributes': '/api/inspect/attributes',
+                'lineage': '/api/lineage (POST {inst, mode})'
             }
         }), 200
 

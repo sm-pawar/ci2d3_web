@@ -30,10 +30,11 @@ function displayFeatureInfo(feature) {
 
     const props = feature.properties;
 
-    // Enable the Track Lineage button if lineage data is available
+    // Enable the Track Lineage button if the feature has an instance id.
+    // Lineage tracking walks the parent/child graph starting from `inst`,
+    // so any feature with an `inst` can have its lineage tree resolved.
     if (trackLineageBtn) {
-        const hasLineage = props.lineage || props.obs || props.pobs || props['p-obs'];
-        trackLineageBtn.disabled = !hasLineage;
+        trackLineageBtn.disabled = !props.inst;
         trackLineageBtn.classList.remove('active');
         trackLineageBtn.textContent = 'Track Lineage';
     }
@@ -158,8 +159,12 @@ function closeInspectPanel() {
 }
 
 /**
- * Track lineage for the currently inspected feature
- * Queries all ice islands that share the same lineage
+ * Track lineage for the currently inspected feature.
+ *
+ * Walks the parent/child lineage graph starting from the selected feature's
+ * `inst` and displays every ice island polygon in the same rooted lineage
+ * tree on the map. Backed by the /api/lineage endpoint, which ports the
+ * graph-traversal logic from the reference analysis code (ci2d3.py).
  */
 async function trackLineage() {
     if (!currentInspectedFeature || !currentInspectedFeature.properties) {
@@ -169,11 +174,11 @@ async function trackLineage() {
 
     const props = currentInspectedFeature.properties;
 
-    // Get the lineage value - try different field names
-    const lineageValue = props.lineage || props.obs || props.pobs || props['p-obs'];
+    // The lineage graph is keyed on the instance id (`inst`).
+    const inst = props.inst;
 
-    if (!lineageValue) {
-        alert('No lineage information available for this ice island');
+    if (!inst) {
+        alert('This ice island has no instance id (inst); lineage cannot be tracked.');
         return;
     }
 
@@ -182,30 +187,29 @@ async function trackLineage() {
     showLoading(true);
 
     try {
-        // Query the API to filter by lineage
-        const filterRequest = {
-            field: 'lineage',
-            operator: '=',
-            value: lineageValue
-        };
-
-        const response = await fetch(`${CONFIG.apiUrl}/filter/`, {
+        // Request the full connected lineage tree (ancestors + descendants).
+        const response = await fetch(`${CONFIG.apiUrl}/lineage/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(filterRequest)
+            body: JSON.stringify({ inst: inst, mode: 'all' })
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let message = `HTTP error! status: ${response.status}`;
+            try {
+                const err = await response.json();
+                if (err.message) message = err.message;
+            } catch (e) { /* ignore parse errors */ }
+            throw new Error(message);
         }
 
         const data = await response.json();
 
         if (data.features && data.features.length > 0) {
             // Add lineage layer to map with special styling
-            addLineageLayer(data, lineageValue);
+            addLineageLayer(data, inst);
 
             // Update button to show active state
             if (trackLineageBtn) {
@@ -213,7 +217,7 @@ async function trackLineage() {
                 trackLineageBtn.textContent = `Showing ${data.count} in lineage`;
             }
 
-            console.log(`Found ${data.count} ice islands in lineage: ${lineageValue}`);
+            console.log(`Found ${data.count} ice islands in lineage of: ${inst}`);
         } else {
             alert('No related ice islands found in this lineage');
         }

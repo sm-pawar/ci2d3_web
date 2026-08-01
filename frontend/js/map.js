@@ -259,10 +259,8 @@ function addLineageLayer(geojson, lineageValue) {
     if (sortedFeatures.length > 1) {
         const lineCoords = [];
         sortedFeatures.forEach(feature => {
-            if (feature.geometry && feature.geometry.type === 'Polygon') {
-                // Get centroid of polygon
-                const coords = feature.geometry.coordinates[0];
-                const centroid = getPolygonCentroid(coords);
+            const centroid = getFeatureCentroid(feature);
+            if (centroid) {
                 lineCoords.push([centroid[1], centroid[0]]); // [lat, lng]
             }
         });
@@ -327,9 +325,8 @@ function addLineageLayer(geojson, lineageValue) {
         lineageLayer.addLayer(polygonLayer);
 
         // Add numbered marker at centroid
-        if (feature.geometry && feature.geometry.type === 'Polygon') {
-            const coords = feature.geometry.coordinates[0];
-            const centroid = getPolygonCentroid(coords);
+        const centroid = getFeatureCentroid(feature);
+        if (centroid) {
             const marker = L.marker([centroid[1], centroid[0]], {
                 icon: L.divIcon({
                     className: 'lineage-marker',
@@ -360,7 +357,7 @@ function addLineageLayer(geojson, lineageValue) {
 }
 
 /**
- * Calculate centroid of a polygon
+ * Calculate the centroid of a single polygon ring as [lng, lat].
  */
 function getPolygonCentroid(coords) {
     let sumX = 0, sumY = 0;
@@ -369,7 +366,44 @@ function getPolygonCentroid(coords) {
         sumY += coords[i][1];
     }
     const count = coords.length - 1;
+    if (count <= 0) return null;
     return [sumX / count, sumY / count];
+}
+
+/**
+ * Get a representative centroid [lng, lat] for a GeoJSON feature.
+ *
+ * Prefers the dataset's own lon/lat attribute columns (used as node
+ * coordinates in the reference lineage graph). Falls back to computing a
+ * centroid from the geometry, handling both Polygon and MultiPolygon (the
+ * iceislands table is loaded as MultiPolygon).
+ */
+function getFeatureCentroid(feature) {
+    const props = feature.properties || {};
+
+    // Prefer explicit lon/lat columns when present and valid.
+    const lon = parseFloat(props.lon);
+    const lat = parseFloat(props.lat);
+    if (!isNaN(lon) && !isNaN(lat)) {
+        return [lon, lat];
+    }
+
+    const geom = feature.geometry;
+    if (!geom || !geom.coordinates) return null;
+
+    if (geom.type === 'Polygon') {
+        return getPolygonCentroid(geom.coordinates[0]);
+    }
+
+    if (geom.type === 'MultiPolygon') {
+        // Use the outer ring of the first polygon part.
+        const firstPart = geom.coordinates[0];
+        if (firstPart && firstPart[0]) {
+            return getPolygonCentroid(firstPart[0]);
+        }
+    }
+
+    return null;
 }
 
 /**
