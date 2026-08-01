@@ -114,6 +114,17 @@ function formatPropertyValue(key, value) {
         return `<span style="color: ${color}; font-weight: bold;">${value}</span> - ${getCalvingLocationName(value)}`;
     }
 
+    // Lineage relationship to the clicked polygon, colour-matched to the map
+    if (key === 'lineage_role') {
+        const style = (typeof LINEAGE_ROLE_STYLES !== 'undefined')
+            ? LINEAGE_ROLE_STYLES[value]
+            : null;
+        if (style) {
+            return `<span style="color: ${style.border}; font-weight: bold;">${style.label}</span>`;
+        }
+        return value;
+    }
+
     // Boolean values
     if (typeof value === 'boolean') {
         return value ? 'Yes' : 'No';

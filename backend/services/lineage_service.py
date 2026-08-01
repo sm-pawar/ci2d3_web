@@ -45,20 +45,17 @@ from sqlalchemy.pool import NullPool
 from config import Config
 
 
-# Join condition for the single-direction recursive traversals, keyed by mode.
-# t = the lineage set accumulated so far, i = candidate row being tested.
-#   i.lineage = t.inst    -> i is a CHILD of a node already found (descend)
-#   i.inst    = t.lineage -> i is the PARENT of a node already found (ascend)
-_MODE_JOIN_CONDITIONS = {
-    'all': '(i.lineage = t.inst OR i.inst = t.lineage)',
-    'after': 'i.lineage = t.inst',
-    'before': 'i.inst = t.lineage',
-}
-
-# "chain" needs two independent traversals (up and down) unioned together.
-# Doing it with a single OR'd join instead would walk sideways into cousin
-# branches and degenerate into the whole connected component.
-_CHAIN_CTE = """
+# Every query computes the ancestor and descendant sets of the selected
+# instance, regardless of mode. The traversal set itself is chosen per mode,
+# but membership in these two sets is what lets each returned feature be
+# tagged as "before" / "after" / "self" so the map can colour them.
+#
+# Ancestors walk up   (i.inst    = a.lineage -> i is the PARENT of a found node)
+# Descendants walk down (i.lineage = d.inst  -> i is a CHILD of a found node)
+#
+# Note both sets include the seed row itself; the role CASE checks "self"
+# first so the seed is never mislabelled.
+_ROLE_CTES = """
     WITH RECURSIVE ancestors AS (
         SELECT inst, lineage FROM {table} WHERE inst = :inst
         UNION
@@ -72,22 +69,40 @@ _CHAIN_CTE = """
         SELECT i.inst, i.lineage
         FROM {table} i
         JOIN descendants d ON i.lineage = d.inst
-    ),
+    ){extra_ctes},
     lineage_tree AS (
-        SELECT inst FROM ancestors
-        UNION
-        SELECT inst FROM descendants
+        {tree_select}
     )
 """
 
-_SINGLE_CTE = """
-    WITH RECURSIVE lineage_tree AS (
+# Extra CTE needed only by mode "all", which walks edges in both directions
+# and so also picks up cousin/sibling branches that are neither ancestors
+# nor descendants of the selected instance.
+_COMPONENT_CTE = """,
+    component AS (
         SELECT inst, lineage FROM {table} WHERE inst = :inst
         UNION
         SELECT i.inst, i.lineage
         FROM {table} i
-        JOIN lineage_tree t ON {join_condition}
-    )
+        JOIN component c ON (i.lineage = c.inst OR i.inst = c.lineage)
+    )"""
+
+# Which set of instances each mode actually returns.
+_MODE_TREE_SELECT = {
+    'chain': 'SELECT inst FROM ancestors UNION SELECT inst FROM descendants',
+    'before': 'SELECT inst FROM ancestors',
+    'after': 'SELECT inst FROM descendants',
+    'all': 'SELECT inst FROM component',
+}
+
+# Per-feature relationship to the clicked polygon. Drives the map colours.
+_ROLE_CASE = """
+    CASE
+        WHEN f.inst = :inst THEN 'self'
+        WHEN EXISTS (SELECT 1 FROM ancestors a WHERE a.inst = f.inst) THEN 'before'
+        WHEN EXISTS (SELECT 1 FROM descendants d WHERE d.inst = f.inst) THEN 'after'
+        ELSE 'related'
+    END AS lineage_role
 """
 
 # Safety cap: a single lineage can span thousands of polygons. Returning them
@@ -147,9 +162,10 @@ class LineageService:
             the true total and whether the response was truncated.
         """
         mode = (mode or 'chain').lower()
-        valid_modes = ['chain'] + list(_MODE_JOIN_CONDITIONS)
-        if mode not in valid_modes:
-            raise ValueError(f"Invalid mode: {mode}. Choose from {valid_modes}")
+        if mode not in _MODE_TREE_SELECT:
+            raise ValueError(
+                f"Invalid mode: {mode}. Choose from {list(_MODE_TREE_SELECT)}"
+            )
 
         if not inst or not str(inst).strip():
             raise ValueError("An 'inst' identifier is required for lineage tracking.")
@@ -160,32 +176,32 @@ class LineageService:
             limit = DEFAULT_MAX_FEATURES
         limit = max(1, min(limit, 10000))
 
-        # Build the traversal CTE for the requested mode. Both variants use
-        # UNION (not UNION ALL) so already-visited rows are dropped, which
-        # guarantees termination even if the data contains a cycle.
-        if mode == 'chain':
-            cte = _CHAIN_CTE.format(table=self.TABLE)
-        else:
-            cte = _SINGLE_CTE.format(
-                table=self.TABLE,
-                join_condition=_MODE_JOIN_CONDITIONS[mode]
-            )
+        # All traversals use UNION (not UNION ALL) so already-visited rows are
+        # dropped, which guarantees termination even if the data has a cycle.
+        cte = _ROLE_CTES.format(
+            table=self.TABLE,
+            extra_ctes=(
+                _COMPONENT_CTE.format(table=self.TABLE) if mode == 'all' else ''
+            ),
+            tree_select=_MODE_TREE_SELECT[mode]
+        )
 
         session = self.get_session()
         try:
             column_names = self._get_property_columns(session)
-            columns_str = ', '.join(column_names)
+            columns_str = ', '.join(f'f.{c}' for c in column_names)
 
             query = text(f"""
                 {cte}
                 SELECT
-                    gid,
-                    ST_AsGeoJSON(ST_Transform(geom, 4326))::json AS geometry,
+                    f.gid,
+                    ST_AsGeoJSON(ST_Transform(f.geom, 4326))::json AS geometry,
                     {columns_str},
-                    COUNT(*) OVER () AS total_in_lineage
-                FROM {self.TABLE}
-                WHERE inst IN (SELECT inst FROM lineage_tree)
-                ORDER BY scenedate, gid
+                    COUNT(*) OVER () AS total_in_lineage,
+                    {_ROLE_CASE}
+                FROM {self.TABLE} f
+                WHERE f.inst IN (SELECT inst FROM lineage_tree)
+                ORDER BY f.scenedate, f.gid
                 LIMIT :limit
             """)
 
@@ -195,13 +211,29 @@ class LineageService:
 
             features = []
             total = 0
+            role_counts = {'self': 0, 'before': 0, 'after': 0, 'related': 0}
+            n_cols = len(column_names)
+
             for row in results:
-                # row[0]=gid, row[1]=geometry, then property columns, then total
+                # row layout:
+                #   [0]            gid
+                #   [1]            geometry
+                #   [2 .. n_cols+1] property columns
+                #   [n_cols+2]     total_in_lineage
+                #   [n_cols+3]     lineage_role
                 properties = {
                     col_name: row[i + 2]
                     for i, col_name in enumerate(column_names)
                 }
-                total = row[len(column_names) + 2]
+                total = row[n_cols + 2]
+                role = row[n_cols + 3]
+
+                # Expose the relationship to the clicked polygon so the map can
+                # colour ancestors and descendants differently.
+                properties['lineage_role'] = role
+                if role in role_counts:
+                    role_counts[role] += 1
+
                 features.append({
                     'type': 'Feature',
                     'id': row[0],
@@ -217,7 +249,8 @@ class LineageService:
                     'inst': inst,
                     'mode': mode,
                     'total': total,
-                    'truncated': total > len(features)
+                    'truncated': total > len(features),
+                    'roles': role_counts
                 }
             }
 

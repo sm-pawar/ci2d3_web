@@ -189,31 +189,11 @@ body {
     border-top-color: rgba(0, 0, 0, 0.8);
 }
 
-/* Lineage legend */
-.lineage-legend {
-    position: absolute;
-    bottom: 30px;
-    left: 20px;
-    background: white;
-    padding: 10px;
-    border-radius: 5px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-    font-size: 0.85rem;
-}
-
-.lineage-legend-item {
-    display: flex;
-    align-items: center;
-    margin: 3px 0;
-}
-
-.lineage-legend-color {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    margin-right: 8px;
-    border: 1px solid #333;
+/* Lineage legend.
+   Rendered as a Leaflet control reusing the shared .legend styles, so it only
+   needs a max-width guard here (role labels are longer than the calving codes). */
+.lineage-legend-box {
+    max-width: 200px;
 }
 
 /* Feature Properties Display */

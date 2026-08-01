@@ -11,6 +11,7 @@ let map;
 let wmsLayer;
 let filteredLayer;
 let lineageLayer;
+let lineageLegend;
 let currentFilteredData = null;
 let currentLineageData = null;
 
@@ -229,6 +230,39 @@ function clearFilteredLayer() {
 }
 
 /**
+ * Colour scheme for lineage features, keyed by their relationship to the
+ * clicked polygon (the `lineage_role` tag returned by /api/lineage).
+ *
+ *   before  = ancestors, i.e. earlier observations this one came from
+ *   after   = descendants, i.e. later observations that came from this one
+ *   self    = the polygon the user actually clicked
+ *   related = same connected component but neither ancestor nor descendant
+ *             (a cousin/sibling branch; only appears in mode "all")
+ */
+const LINEAGE_ROLE_STYLES = {
+    before: {
+        fill: '#1f78b4', border: '#0f4c81',
+        weight: 2, fillOpacity: 0.45,
+        label: 'Before (ancestor)'
+    },
+    after: {
+        fill: '#e6550d', border: '#a63603',
+        weight: 2, fillOpacity: 0.45,
+        label: 'After (descendant)'
+    },
+    self: {
+        fill: '#ffd400', border: '#7a5c00',
+        weight: 4, fillOpacity: 0.75,
+        label: 'Selected polygon'
+    },
+    related: {
+        fill: '#9e9e9e', border: '#616161',
+        weight: 2, fillOpacity: 0.35,
+        label: 'Related branch'
+    }
+};
+
+/**
  * Add lineage layer to map with special styling
  * Shows all ice islands in the same lineage tree
  */
@@ -291,41 +325,29 @@ function addLineageLayer(geojson, lineageValue) {
 
     // Add polygon features with numbered markers
     sortedFeatures.forEach((feature, index) => {
-        const isFirst = index === 0;
-        const isLast = index === sortedFeatures.length - 1;
-
-        // Determine color based on position in lineage
-        let fillColor, borderColor;
-        if (isFirst) {
-            // Parent/origin - green
-            fillColor = '#28a745';
-            borderColor = '#1e7e34';
-        } else if (isLast) {
-            // Most recent child - blue
-            fillColor = '#007bff';
-            borderColor = '#0056b3';
-        } else {
-            // Intermediate - orange
-            fillColor = '#fd7e14';
-            borderColor = '#e85d04';
-        }
+        // Colour by the feature's relationship to the clicked polygon, as
+        // tagged by the API (self / before / after / related).
+        const role = feature.properties.lineage_role || 'related';
+        const style = LINEAGE_ROLE_STYLES[role] || LINEAGE_ROLE_STYLES.related;
 
         // Create polygon layer
         const polygonLayer = L.geoJSON(feature, {
             style: {
-                color: borderColor,
-                weight: 3,
+                color: style.border,
+                weight: style.weight,
                 opacity: 1,
-                fillColor: fillColor,
-                fillOpacity: 0.5
+                fillColor: style.fill,
+                fillOpacity: style.fillOpacity
             },
             onEachFeature: function(f, layer) {
                 layer.on('click', function() {
                     displayFeatureInfo(f);
                 });
 
-                // Add tooltip with sequence number
-                const tooltip = `#${index + 1} - ${f.properties.scenedate || 'Unknown date'}`;
+                // Tooltip: sequence number, relationship, and date
+                const tooltip =
+                    `#${index + 1} &middot; ${style.label}<br>` +
+                    `${f.properties.scenedate || 'Unknown date'}`;
                 layer.bindTooltip(tooltip, {
                     permanent: false,
                     direction: 'top',
@@ -344,7 +366,7 @@ function addLineageLayer(geojson, lineageValue) {
             const marker = L.marker([centroid[1], centroid[0]], {
                 icon: L.divIcon({
                     className: 'lineage-marker',
-                    html: `<div class="lineage-number" style="background-color: ${borderColor}">${index + 1}</div>`,
+                    html: `<div class="lineage-number" style="background-color: ${style.border}">${index + 1}</div>`,
                     iconSize: [24, 24],
                     iconAnchor: [12, 12]
                 })
@@ -355,6 +377,9 @@ function addLineageLayer(geojson, lineageValue) {
 
     // Add layer to map
     lineageLayer.addTo(map);
+
+    // Show a legend explaining the before/after colours
+    addLineageLegend(geojson.lineage || {});
 
     // Zoom to lineage features
     const allPolygons = L.geoJSON(geojson);
@@ -368,6 +393,56 @@ function addLineageLayer(geojson, lineageValue) {
     }
 
     console.log(`Lineage layer added with ${geojson.features.length} features for lineage: ${lineageValue}`);
+}
+
+/**
+ * Add a legend describing the lineage colour scheme.
+ * Only lists roles that actually occur in the current result.
+ */
+function addLineageLegend(meta) {
+    removeLineageLegend();
+
+    const counts = meta.roles || {};
+
+    lineageLegend = L.control({ position: 'topright' });
+    lineageLegend.onAdd = function() {
+        const div = L.DomUtil.create('div', 'legend lineage-legend-box');
+        let html = '<h6><strong>Lineage</strong></h6>';
+
+        // Chronological order: ancestors, the clicked polygon, descendants.
+        ['before', 'self', 'after', 'related'].forEach(role => {
+            const n = counts[role];
+            if (!n) return;   // hide roles absent from this result
+            const style = LINEAGE_ROLE_STYLES[role];
+            html += `
+                <div class="legend-item">
+                    <span class="legend-color" style="background-color: ${style.fill};
+                          border-color: ${style.border};"></span>
+                    ${style.label} (${n})
+                </div>
+            `;
+        });
+
+        if (meta.truncated) {
+            html += `<div class="legend-item text-muted">
+                        Truncated - ${meta.total} in full lineage
+                     </div>`;
+        }
+
+        div.innerHTML = html;
+        return div;
+    };
+    lineageLegend.addTo(map);
+}
+
+/**
+ * Remove the lineage legend if present.
+ */
+function removeLineageLegend() {
+    if (lineageLegend) {
+        map.removeControl(lineageLegend);
+        lineageLegend = null;
+    }
 }
 
 /**
@@ -429,6 +504,8 @@ function clearLineageLayer() {
         lineageLayer = null;
         currentLineageData = null;
     }
+
+    removeLineageLegend();
 
     // Reset Track Lineage button
     const trackLineageBtn = document.getElementById('trackLineageBtn');
