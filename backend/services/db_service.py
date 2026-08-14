@@ -197,6 +197,112 @@ class DatabaseService:
         finally:
             session.close()
 
+    def filter_features_multi(self, filters, logic='AND'):
+        """
+        Filter features using multiple conditions with AND/OR logic.
+
+        Args:
+            filters: List of dicts with keys: field, operator, value
+            logic: 'AND' or 'OR' (case-insensitive)
+
+        Returns:
+            GeoJSON FeatureCollection of matching features
+        """
+        if not filters:
+            return {'type': 'FeatureCollection', 'features': [], 'count': 0}
+
+        # Validate logic
+        logic = logic.upper()
+        if logic not in ('AND', 'OR'):
+            raise ValueError("logic must be AND or OR")
+
+        # Validate operators
+        valid_operators = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'NOT IN']
+        for f in filters:
+            op = f['operator'].upper()
+            if op not in valid_operators:
+                raise ValueError(f"Invalid operator: {op}")
+
+        # Build WHERE clause parts and parameters
+        where_parts = []
+        params = {}
+        for idx, f in enumerate(filters):
+            field = f['field']
+            op = f['operator'].upper()
+            value = f['value']
+
+            param_name = f"val_{idx}"
+
+            # Handle different operators
+            if op in ('LIKE', 'ILIKE'):
+                # Add wildcards for LIKE/ILIKE
+                where_parts.append(f"{field} {op} :{param_name}")
+                params[param_name] = f"%{value}%"
+            elif op in ('IN', 'NOT IN'):
+                # Expect value to be list/tuple
+                if not isinstance(value, (list, tuple)):
+                    value = (value,)
+                where_parts.append(f"{field} {op} :{param_name}")
+                params[param_name] = tuple(value)
+            else:
+                where_parts.append(f"{field} {op} :{param_name}")
+                params[param_name] = value
+
+        where_clause = f" {logic} ".join(where_parts)
+
+        # Get column names
+        session = self.get_session()
+        try:
+            columns_query = text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'iceislands'
+                    AND column_name NOT IN ('geom', 'gid')
+                ORDER BY ordinal_position
+            """)
+            column_results = session.execute(columns_query).fetchall()
+            column_names = [row[0] for row in column_results]
+            columns_str = ', '.join(column_names)
+
+            # Build full query
+            query = text(f"""
+                SELECT
+                    gid,
+                    ST_AsGeoJSON(ST_Transform(geom, 4326))::json as geometry,
+                    {columns_str}
+                FROM iceislands
+                WHERE {where_clause}
+                ORDER BY gid
+                LIMIT 1000
+            """)
+
+            results = session.execute(query, params).fetchall()
+
+            # Build GeoJSON
+            features = []
+            for row in results:
+                properties = {}
+                for i, col_name in enumerate(column_names):
+                    properties[col_name] = row[i + 2]  # +2 for gid, geometry
+                features.append({
+                    'type': 'Feature',
+                    'id': row[0],
+                    'geometry': row[1],
+                    'properties': properties
+                })
+
+            return {
+                'type': 'FeatureCollection',
+                'features': features,
+                'count': len(features)
+            }
+
+        except Exception as e:
+            print(f"Error filtering features (multi): {e}")
+            raise
+        finally:
+            session.close()
+
     def get_feature_count(self):
         """Get total count of ice island features"""
         session = self.get_session()

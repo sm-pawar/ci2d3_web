@@ -14,6 +14,12 @@ function displayFeatureInfo(feature) {
     const content = document.getElementById('inspectContent');
     const trackLineageBtn = document.getElementById('trackLineageBtn');
 
+    // If lineage is currently displayed, clear it (as per requirement)
+    if (lineageLayer) {
+        clearLineageLayer();
+        // Reset button state (will be updated below)
+    }
+
     if (!feature || !feature.properties) {
         content.innerHTML = '<p class="text-muted">No feature data available</p>';
         currentInspectedFeature = null;
@@ -31,8 +37,6 @@ function displayFeatureInfo(feature) {
     const props = feature.properties;
 
     // Enable the Track Lineage button if the feature has an instance id.
-    // Lineage tracking walks the parent/child graph starting from `inst`,
-    // so any feature with an `inst` can have its lineage tree resolved.
     if (trackLineageBtn) {
         trackLineageBtn.disabled = !props.inst;
         trackLineageBtn.classList.remove('active');
@@ -42,19 +46,12 @@ function displayFeatureInfo(feature) {
     // Build HTML for feature properties
     let html = '<div class="feature-info">';
 
-    // Add each property
     for (const [key, value] of Object.entries(props)) {
-        // Skip null/undefined values and geometry-related fields
         if (value === null || value === undefined || key === 'geom') {
             continue;
         }
-
-        // Format the key as a readable label
         const label = formatPropertyLabel(key);
-
-        // Format the value
         const formattedValue = formatPropertyValue(key, value);
-
         html += `
             <div class="feature-property">
                 <div class="property-label">${label}</div>
@@ -73,7 +70,6 @@ function displayFeatureInfo(feature) {
  * Format property label for display
  */
 function formatPropertyLabel(key) {
-    // Convert snake_case to Title Case
     return key
         .replace(/_/g, ' ')
         .replace(/\b\w/g, char => char.toUpperCase());
@@ -83,9 +79,6 @@ function formatPropertyLabel(key) {
  * Format property value based on type and key
  */
 function formatPropertyValue(key, value) {
-    // Handle different data types and special cases
-
-    // Dates
     if (key.toLowerCase().includes('date') && value) {
         const date = new Date(value);
         if (!isNaN(date.getTime())) {
@@ -97,7 +90,6 @@ function formatPropertyValue(key, value) {
         }
     }
 
-    // Numbers with units
     if (key === 'area_km2') {
         return `${parseFloat(value).toFixed(2)} km²`;
     }
@@ -108,13 +100,11 @@ function formatPropertyValue(key, value) {
         return `${parseFloat(value).toFixed(1)} m`;
     }
 
-    // Calving location with color
     if (key === 'calvingloc') {
         const color = getColorForCalvingLoc(value);
         return `<span style="color: ${color}; font-weight: bold;">${value}</span> - ${getCalvingLocationName(value)}`;
     }
 
-    // Lineage relationship to the clicked polygon, colour-matched to the map
     if (key === 'lineage_role') {
         const style = (typeof LINEAGE_ROLE_STYLES !== 'undefined')
             ? LINEAGE_ROLE_STYLES[value]
@@ -125,17 +115,14 @@ function formatPropertyValue(key, value) {
         return value;
     }
 
-    // Boolean values
     if (typeof value === 'boolean') {
         return value ? 'Yes' : 'No';
     }
 
-    // Numbers
     if (typeof value === 'number') {
         return value.toLocaleString();
     }
 
-    // Default: return as string
     return value;
 }
 
@@ -161,7 +148,6 @@ function closeInspectPanel() {
     const panel = document.getElementById('inspectPanel');
     panel.classList.remove('active');
 
-    // Reset the Track Lineage button state
     const trackLineageBtn = document.getElementById('trackLineageBtn');
     if (trackLineageBtn) {
         trackLineageBtn.classList.remove('active');
@@ -170,12 +156,29 @@ function closeInspectPanel() {
 }
 
 /**
+ * Handle the Track Lineage / Clear Lineage button click
+ */
+function handleTrackLineageClick() {
+    const btn = document.getElementById('trackLineageBtn');
+    // If lineage layer exists, clear it
+    if (lineageLayer) {
+        clearLineageLayer();
+        btn.textContent = 'Track Lineage';
+        btn.classList.remove('active');
+        // Re-enable based on current feature
+        if (currentInspectedFeature && currentInspectedFeature.properties && currentInspectedFeature.properties.inst) {
+            btn.disabled = false;
+        } else {
+            btn.disabled = true;
+        }
+    } else {
+        // Otherwise track lineage
+        trackLineage();
+    }
+}
+
+/**
  * Track lineage for the currently inspected feature.
- *
- * Walks the parent/child lineage graph starting from the selected feature's
- * `inst` and displays every ice island polygon in the same rooted lineage
- * tree on the map. Backed by the /api/lineage endpoint, which ports the
- * graph-traversal logic from the reference analysis code (ci2d3.py).
  */
 async function trackLineage() {
     if (!currentInspectedFeature || !currentInspectedFeature.properties) {
@@ -184,8 +187,6 @@ async function trackLineage() {
     }
 
     const props = currentInspectedFeature.properties;
-
-    // The lineage graph is keyed on the instance id (`inst`).
     const inst = props.inst;
 
     if (!inst) {
@@ -198,9 +199,6 @@ async function trackLineage() {
     showLoading(true);
 
     try {
-        // "chain" = this polygon's own lineage line: all of its ancestors plus
-        // all of its descendants. (mode "all" would return the entire connected
-        // component, which averages ~2,800 polygons on this dataset.)
         const response = await fetch(`${CONFIG.apiUrl}/lineage/`, {
             method: 'POST',
             headers: {
@@ -210,8 +208,6 @@ async function trackLineage() {
         });
 
         if (!response.ok) {
-            // A 404 here means the API container is still running a build
-            // without the lineage blueprint registered.
             if (response.status === 404) {
                 throw new Error(
                     'The /api/lineage endpoint was not found. The Flask API is ' +
@@ -223,25 +219,21 @@ async function trackLineage() {
             try {
                 const err = await response.json();
                 if (err.message) message = err.message;
-            } catch (e) { /* ignore parse errors */ }
+            } catch (e) { /* ignore */ }
             throw new Error(message);
         }
 
         const data = await response.json();
 
         if (data.features && data.features.length > 0) {
-            // Add lineage layer to map with special styling
             addLineageLayer(data, inst);
-
             const meta = data.lineage || {};
 
-            // Update button to show active state
-            if (trackLineageBtn) {
-                trackLineageBtn.classList.add('active');
-                trackLineageBtn.textContent = meta.truncated
-                    ? `Showing ${data.count} of ${meta.total} in lineage`
-                    : `Showing ${data.count} in lineage`;
-            }
+            // Change button to "Clear Lineage"
+            trackLineageBtn.classList.add('active');
+            trackLineageBtn.textContent = meta.truncated
+                ? `Showing ${data.count} of ${meta.total} in lineage`
+                : `Showing ${data.count} in lineage`;
 
             console.log(
                 `Lineage of ${inst}: showing ${data.count}` +
@@ -292,12 +284,10 @@ async function fetchFeatureById(featureId) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
-    // Close inspect panel button
     document.getElementById('closeInspect').addEventListener('click', closeInspectPanel);
 
-    // Track Lineage button
     const trackLineageBtn = document.getElementById('trackLineageBtn');
     if (trackLineageBtn) {
-        trackLineageBtn.addEventListener('click', trackLineage);
+        trackLineageBtn.addEventListener('click', handleTrackLineageClick);
     }
 });

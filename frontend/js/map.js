@@ -148,7 +148,7 @@ function getFeatureInfo(latlng) {
         y: Math.round(point.y)
     };
 
-    const url = `${CONFIG.geoserverUrl}/wms?${new URLSearchParams(params)}`;
+    const url = `${CONFIG.geoserverUrl}/ci2d3/wms?${new URLSearchParams(params)}`;
 
     showLoading(true);
 
@@ -230,14 +230,7 @@ function clearFilteredLayer() {
 }
 
 /**
- * Colour scheme for lineage features, keyed by their relationship to the
- * clicked polygon (the `lineage_role` tag returned by /api/lineage).
- *
- *   before  = ancestors, i.e. earlier observations this one came from
- *   after   = descendants, i.e. later observations that came from this one
- *   self    = the polygon the user actually clicked
- *   related = same connected component but neither ancestor nor descendant
- *             (a cousin/sibling branch; only appears in mode "all")
+ * Colour scheme for lineage features
  */
 const LINEAGE_ROLE_STYLES = {
     before: {
@@ -264,7 +257,6 @@ const LINEAGE_ROLE_STYLES = {
 
 /**
  * Add lineage layer to map with special styling
- * Shows all ice islands in the same lineage tree
  */
 function addLineageLayer(geojson, lineageValue) {
     // Remove existing lineage layer
@@ -397,7 +389,6 @@ function addLineageLayer(geojson, lineageValue) {
 
 /**
  * Add a legend describing the lineage colour scheme.
- * Only lists roles that actually occur in the current result.
  */
 function addLineageLegend(meta) {
     removeLineageLegend();
@@ -461,11 +452,6 @@ function getPolygonCentroid(coords) {
 
 /**
  * Get a representative centroid [lng, lat] for a GeoJSON feature.
- *
- * Prefers the dataset's own lon/lat attribute columns (used as node
- * coordinates in the reference lineage graph). Falls back to computing a
- * centroid from the geometry, handling both Polygon and MultiPolygon (the
- * iceislands table is loaded as MultiPolygon).
  */
 function getFeatureCentroid(feature) {
     const props = feature.properties || {};
@@ -507,11 +493,17 @@ function clearLineageLayer() {
 
     removeLineageLegend();
 
-    // Reset Track Lineage button
+    // Reset Track Lineage button if present
     const trackLineageBtn = document.getElementById('trackLineageBtn');
     if (trackLineageBtn) {
         trackLineageBtn.classList.remove('active');
         trackLineageBtn.textContent = 'Track Lineage';
+        // Re-enable if current feature has inst
+        if (currentInspectedFeature && currentInspectedFeature.properties && currentInspectedFeature.properties.inst) {
+            trackLineageBtn.disabled = false;
+        } else {
+            trackLineageBtn.disabled = true;
+        }
     }
 }
 

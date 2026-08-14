@@ -43,12 +43,14 @@
                                 <option value="imgref" data-type="character varying">Imgref</option>
                                 <option value="sensor" data-type="character varying">Sensor</option>
                             </select>
+                            <!-- Description box for the selected attribute -->
+                            <div id="fieldDescription" class="mt-1 text-muted small"></div>
                         </div>
 
                         <div class="mb-3">
                             <label for="filterOperator" class="form-label">Operator</label>
                             <select class="form-select" id="filterOperator" required>
-                                <!-- Options populated dynamically by JavaScript based on field type -->
+                                <!-- Options populated dynamically -->
                             </select>
                         </div>
 
@@ -62,10 +64,13 @@
                         </div>
 
                         <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary">Apply Filter</button>
+                            <button type="submit" class="btn btn-primary" id="applyFilterBtn">Apply Filter</button>
                             <button type="button" class="btn btn-secondary" id="clearFilter">Clear Filter</button>
                         </div>
                     </form>
+
+                    <!-- Active filters summary -->
+                    <div id="activeFiltersSummary" class="mt-2"></div>
 
                     <div id="filterResults" class="mt-3">
                         <!-- Filter results will appear here -->
@@ -113,13 +118,10 @@
             integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
             crossorigin="anonymous"></script>
 
-    <!-- Custom JS -->
-    <!-- The ?v= cache-buster must be bumped whenever these files change.
-         Tomcat serves these with caching enabled, so without it browsers
-         keep running stale JS after a redeploy. -->
-    <script src="js/config.js?v=2"></script>
-    <script src="js/map.js?v=2"></script>
-    <script src="js/inspect.js?v=2"></script>
-    <script src="js/filter.js?v=2"></script>
+    <!-- Custom JS (bumped cache version) -->
+    <script src="js/config.js?v=3"></script>
+    <script src="js/map.js?v=3"></script>
+    <script src="js/inspect.js?v=3"></script>
+    <script src="js/filter.js?v=3"></script>
 </body>
 </html>

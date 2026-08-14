@@ -1,8 +1,11 @@
+# Required for geospatial operations
+numpy<2.0.0
+shapely>=2.0.6
+geoalchemy2>=0.15.1
+SQLAlchemy>=1.4,<2.0
+psycopg2-binary>=2.9.0
+# ... other dependencies as before
 Flask==3.0.0
 Flask-CORS==4.0.0
-SQLAlchemy==2.0.23
-GeoAlchemy2==0.14.2
-psycopg2-binary==2.9.9
 requests==2.31.0
 python-dotenv==1.0.0
-shapely==2.0.2
