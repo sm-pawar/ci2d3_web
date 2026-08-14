@@ -223,10 +223,10 @@ function clearFilteredLayer() {
     // Clear lineage layer as well
     clearLineageLayer();
 
-    // Restore WMS layer
-    if (wmsLayer && !wmsLayer._map) {
-        wmsLayer.addTo(map);
-    }
+    // // Restore WMS layer
+    // if (wmsLayer && !wmsLayer._map) {
+    //     wmsLayer.addTo(map);
+    // }
 }
 
 /**
@@ -504,6 +504,11 @@ function clearLineageLayer() {
         } else {
             trackLineageBtn.disabled = true;
         }
+    }
+
+    // Restore WMS layer
+    if (wmsLayer && !wmsLayer._map) {
+        wmsLayer.addTo(map);
     }
 }
 
