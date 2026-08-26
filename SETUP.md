@@ -2,6 +2,16 @@
 
 Complete step-by-step guide to set up and run the CI2D3 Ice Island Explorer.
 
+> **The portal is served on port 80.** An nginx reverse proxy fronts the whole stack,
+> so the application lives at **http://localhost/** (and at `http://<SERVER-IP>/` on a
+> deployed machine), with GeoServer under `/geoserver/` and the API under `/api/`.
+>
+> GeoServer (8080), Flask (5000) and PostgreSQL (5432) are bound to `127.0.0.1`. The
+> `localhost:8080` / `localhost:5000` URLs below still work **on the machine running
+> Docker**, which is what makes them handy for local development and debugging — but
+> they are not reachable from other machines. See [README.md](README.md) for the
+> architecture and [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) for server deployment.
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
@@ -238,43 +248,35 @@ If the automated script fails, follow these steps:
 
 ### Web Portal
 
-The frontend can be accessed in two ways:
+**The portal: http://localhost/**
 
-**Option 1: Via GeoServer (if configured)**
+`./frontend` is bind-mounted into the GeoServer Tomcat ROOT webapp, and nginx serves
+it on port 80. Edits to the frontend appear on refresh — no copying required.
 
-Copy the frontend files to the GeoServer ROOT webapp:
+> If a JavaScript change does not take effect, bump the `?v=N` cache-buster on the
+> script tags in `frontend/index.html` and hard-refresh (Ctrl+Shift+R).
 
-```bash
-docker cp frontend/. ci2d3_geoserver:/usr/local/tomcat/webapps/ROOT/
-```
+### Through the proxy (works from anywhere)
 
-Then access: http://localhost:8080/
+- **Portal**: http://localhost/
+- **API root**: http://localhost/api/
+- **Health check**: http://localhost/health
+- **Inspect**: http://localhost/api/inspect/1
+- **Filter**: http://localhost/api/filter/
+- **Lineage**: http://localhost/api/lineage/
+- **GeoServer admin**: http://localhost/geoserver
+- **WMS GetCapabilities**: http://localhost/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities
 
-**Option 2: Directly from File System**
+### Direct to the containers (only from the Docker host)
 
-Open `frontend/index.html` in your web browser.
+Useful for isolating whether a problem is in nginx or the service behind it:
 
-**Option 3: Using a Simple HTTP Server**
-
-```bash
-cd frontend
-python3 -m http.server 8000
-```
-
-Then access: http://localhost:8000/
-
-### API Endpoints
-
-- **API Root**: http://localhost:5000/
-- **Health Check**: http://localhost:5000/health
-- **Inspect**: http://localhost:5000/api/inspect/1
-- **Filter**: http://localhost:5000/api/filter/
-
-### GeoServer
-
-- **Admin Interface**: http://localhost:8080/geoserver
+- **Flask**: http://localhost:5000/health
+- **GeoServer**: http://localhost:8080/geoserver
 - **Layer Preview**: http://localhost:8080/geoserver/web/?wicket:bookmarkablePage=:org.geoserver.web.demo.MapPreviewPage
-- **WMS GetCapabilities**: http://localhost:8080/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities
+
+Opening the frontend on http://localhost:8080/ also works: `config.js` detects the
+port and targets `:8080` / `:5000` directly instead of same-origin paths.
 
 ---
 

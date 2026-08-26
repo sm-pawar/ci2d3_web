@@ -1,609 +1,539 @@
-# AWS EC2 Deployment Guide - CI2D3 Ice Island Explorer
+# AWS EC2 Deployment Guide — CI2D3 Ice Island Explorer
 
-Complete guide to deploy the CI2D3 Ice Island Explorer on AWS EC2 with public IP access.
+Deploy the CI2D3 Ice Island Explorer on AWS EC2, reachable at
+`http://<YOUR-EC2-PUBLIC-IP>/` with a single open web port.
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [AWS EC2 Setup](#aws-ec2-setup)
-3. [Configure Security Groups](#configure-security-groups)
-4. [Install Dependencies](#install-dependencies)
-5. [Deploy Application](#deploy-application)
-6. [Configure for Public Access](#configure-for-public-access)
-7. [Verify CORS](#verify-cors)
-8. [Testing](#testing)
-9. [Troubleshooting](#troubleshooting)
-10. [Security Best Practices](#security-best-practices)
+1. [How the ports work](#how-the-ports-work)
+2. [Prerequisites](#prerequisites)
+3. [Launch the EC2 instance](#launch-the-ec2-instance)
+4. [Configure the security group](#configure-the-security-group)
+5. [Install dependencies](#install-dependencies)
+6. [Deploy the application](#deploy-the-application)
+7. [Verify the deployment](#verify-the-deployment)
+8. [Admin access over an SSH tunnel](#admin-access-over-an-ssh-tunnel)
+9. [Embedding the portal](#embedding-the-portal)
+10. [Adding HTTPS](#adding-https)
+11. [Security hardening](#security-hardening)
+12. [Troubleshooting](#troubleshooting)
+13. [Monitoring and backups](#monitoring-and-backups)
+
+---
+
+## How the ports work
+
+The stack exposes **one public port: 80**. An nginx reverse proxy sits in front of
+everything and routes by path:
+
+| Public URL | Goes to | Purpose |
+| --- | --- | --- |
+| `http://<IP>/` | GeoServer Tomcat ROOT | The web portal |
+| `http://<IP>/geoserver/` | GeoServer :8080 | WMS/WFS and the admin UI |
+| `http://<IP>/api/` | Flask :5000 | REST API |
+| `http://<IP>/health` | Flask :5000 | Health check |
+
+GeoServer (8080), Flask (5000) and PostgreSQL (5432) are bound to `127.0.0.1` in
+`docker-compose.yml`. They are reachable from the EC2 box itself and through an SSH
+tunnel, **but not from the internet** — even if a security group rule were left open,
+Docker is not listening on the public interface for those ports.
+
+Because port 80 is the default for HTTP, browsers omit it. That is what makes the
+site reachable at just the IP address, with no `:8080` suffix.
+
+### A note on port 22
+
+Port 22 is **SSH**, not a web port. The portal cannot be served there: the SSH daemon
+already owns it, and moving the web server onto it would break remote administration
+of the instance. It also would not improve security — an open port is an open port
+regardless of its number; what matters is *how many* ports are exposed and *what*
+listens on them.
+
+The security improvement in this setup comes from reducing the public surface from
+three ports (8080, 5000, and in some setups 5432) down to one (80), and keeping SSH
+on 22 restricted to your own IP.
+
+### Upgrading an existing deployment
+
+If you previously reached the site on `:8080`, that URL **will stop working** from the
+internet after this change. Update any bookmarks and — importantly — any `<iframe>`
+embeds to drop the port:
+
+```diff
+- <iframe src="http://54.123.45.67:8080/" ...>
++ <iframe src="http://54.123.45.67/" ...>
+```
+
+You can then remove the 8080 and 5000 inbound rules from the security group.
 
 ---
 
 ## Prerequisites
 
-- AWS Account with EC2 access
-- Basic knowledge of SSH and Linux commands
-- Domain name (optional, but recommended for production)
+- An AWS account with EC2 access
+- Basic SSH / Linux familiarity
+- A domain name (optional, required for HTTPS via Let's Encrypt)
 
-### Minimum EC2 Instance Requirements
+### Minimum instance
 
-- **Instance Type**: t3.medium or larger (2 vCPU, 4 GB RAM)
-- **Storage**: 20 GB minimum, 50 GB recommended
-- **OS**: Ubuntu 22.04 LTS (or Amazon Linux 2023)
+- **Type**: `t3.medium` (2 vCPU, 4 GB RAM) or larger
+- **Storage**: 20 GB gp3 minimum, 50 GB recommended
+- **OS**: Ubuntu 22.04 LTS or newer
 
 ---
 
-## AWS EC2 Setup
+## Launch the EC2 instance
 
-### Step 1: Launch EC2 Instance
-
-1. **Log in to AWS Console** → Navigate to EC2
-
-2. **Click "Launch Instance"**
-
-3. **Configure Instance:**
+1. EC2 Console → **Launch Instance**
+2. Configure:
    - **Name**: `ci2d3-ice-island-explorer`
-   - **AMI**: Ubuntu Server 22.04 LTS (Free tier eligible)
-   - **Instance type**: `t3.medium` (minimum)
-   - **Key pair**: Create new or select existing SSH key pair
-   - **Storage**: 20 GB gp3 (minimum)
+   - **AMI**: Ubuntu Server 22.04 LTS
+   - **Instance type**: `t3.medium`
+   - **Key pair**: create or select an SSH key pair
+   - **Storage**: 20 GB gp3
+3. Launch, wait for **Running**, and note the **public IPv4 address**
+   (e.g. `54.123.45.67`).
 
-4. **Click "Launch Instance"**
+Consider attaching an **Elastic IP** so the address survives a stop/start.
 
-5. **Wait for instance to start** (State: Running)
-
-6. **Note your Public IP address** from EC2 Dashboard
-   - Example: `54.123.45.67`
-   - You'll need this for configuration
-
-### Step 2: Connect to EC2 Instance
+Connect:
 
 ```bash
-# Replace with your key file and public IP
 ssh -i "your-key.pem" ubuntu@54.123.45.67
 ```
 
 ---
 
-## Configure Security Groups
+## Configure the security group
 
-### Required Ports
+Only two inbound rules are needed.
 
-Configure your EC2 Security Group to allow these inbound ports:
+| Type | Protocol | Port | Source | Purpose |
+| --- | --- | --- | --- | --- |
+| SSH | TCP | 22 | **My IP** | Administration |
+| HTTP | TCP | 80 | `0.0.0.0/0` | The portal |
+| HTTPS | TCP | 443 | `0.0.0.0/0` | Only if you add TLS |
 
-| Port | Protocol | Source | Purpose |
-|------|----------|--------|---------|
-| 22 | TCP | Your IP | SSH access |
-| 8080 | TCP | 0.0.0.0/0 | GeoServer & Frontend |
-| 5000 | TCP | 0.0.0.0/0 | Flask API |
+**Do not open 8080, 5000 or 5432.** Those services listen on loopback only, so such
+rules would grant nothing — but leaving them in place is misleading and risky if the
+binding is ever changed back.
 
-### Configure in AWS Console
+In the console: EC2 → your instance → **Security** tab → security group →
+**Edit inbound rules** → keep only the rows above → **Save rules**.
 
-1. **Go to EC2 Dashboard** → Select your instance
-
-2. **Click "Security" tab** → Click on Security Group link
-
-3. **Click "Edit inbound rules"**
-
-4. **Add the following rules:**
-
-   ```
-   Type: SSH
-   Protocol: TCP
-   Port: 22
-   Source: My IP (or your specific IP)
-
-   Type: Custom TCP
-   Protocol: TCP
-   Port: 8080
-   Source: 0.0.0.0/0 (or specific IPs for better security)
-   Description: GeoServer and Frontend
-
-   Type: Custom TCP
-   Protocol: TCP
-   Port: 5000
-   Source: 0.0.0.0/0
-   Description: Flask API
-   ```
-
-5. **Click "Save rules"**
-
-**Security Note:** For production, restrict `0.0.0.0/0` to specific IP ranges or use a Load Balancer.
+Restricting SSH to *My IP* rather than `0.0.0.0/0` is the single highest-value change
+here — it removes the instance from the constant background of SSH brute-force scans.
 
 ---
 
-## Install Dependencies
-
-SSH into your EC2 instance and run:
+## Install dependencies
 
 ```bash
-# Update system packages
 sudo apt update && sudo apt upgrade -y
 
-# Install Docker
+# Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
-
-# Add ubuntu user to docker group
 sudo usermod -aG docker ubuntu
 
-# Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# Docker Compose plugin + git
+sudo apt install -y docker-compose-v2 git
 
-# Install Git
-sudo apt install git -y
-
-# Verify installations
 docker --version
-docker-compose --version
-git --version
-
-# Log out and log back in for docker group changes to take effect
-exit
+docker compose version
 ```
 
-**Re-connect via SSH:**
+Log out and back in so the `docker` group membership applies:
+
 ```bash
+exit
 ssh -i "your-key.pem" ubuntu@54.123.45.67
 ```
 
+> This guide writes `docker-compose`. On newer installs the command is
+> `docker compose` (a space). Both work the same way.
+
 ---
 
-## Deploy Application
+## Deploy the application
 
-### Step 1: Clone Repository
+### 1. Clone the repository
 
 ```bash
-# Clone your repository
 git clone https://github.com/sm-pawar/ci2d3_web.git
 cd ci2d3_web
-
-# Checkout your branch
-git checkout claude/setup-docker-geoserver-postgis-011CV5rqjtAgSAMsjfmx2Uzy
 ```
 
-### Step 2: Configure Environment
+### 2. Set your own passwords
+
+The defaults in `docker-compose.yml` are development credentials. Change them before
+exposing the instance:
+
+- `POSTGRES_PASSWORD` / `DB_PASSWORD` (must match across `postgis` and `flask-api`)
+- `GEOSERVER_ADMIN_PASSWORD`
+
+### 3. Build and start
 
 ```bash
-# Copy production environment file
-cp .env.production .env
-
-# Edit with your EC2 public IP
-nano .env
-
-# Replace <YOUR_EC2_PUBLIC_IP> with your actual IP
-# Example: PUBLIC_IP=54.123.45.67
-
-# Save and exit (Ctrl+X, Y, Enter)
+docker-compose up -d --build
 ```
 
-**Important Configuration in `.env`:**
-
-```bash
-# Replace this line
-PUBLIC_IP=<YOUR_EC2_PUBLIC_IP>
-
-# With your actual IP (example)
-PUBLIC_IP=54.123.45.67
-
-# Also change passwords for production!
-GEOSERVER_PASSWORD=YOUR_SECURE_PASSWORD
-DB_PASSWORD=YOUR_SECURE_DB_PASSWORD
-SECRET_KEY=YOUR-RANDOM-SECRET-KEY
-```
-
-### Step 3: Build and Start Services
-
-```bash
-# Build Docker images (this may take 10-15 minutes)
-docker-compose build
-
-# Start all services
-docker-compose up -d
-
-# Monitor logs
-docker-compose logs -f
-```
-
-Watch for these success messages:
-- PostGIS: `database system is ready to accept connections`
-- GeoServer: `Server startup in [xxxx] milliseconds`
-- Flask: `Running on http://0.0.0.0:5000`
-
-Press `Ctrl+C` to exit log view.
-
-### Step 4: Load Ice Island Data
-
-```bash
-# Load shapefile into PostGIS
-docker-compose exec postgis bash /scripts/load_data.sh
-
-# Verify data loaded
-docker-compose exec postgis psql -U geoserver -d ci2d3_db -c "SELECT COUNT(*) FROM iceislands;"
-```
-
-### Step 5: Configure GeoServer
-
-```bash
-# Run GeoServer configuration script
-docker-compose exec geoserver bash /opt/scripts/configure_geoserver.sh
-```
-
----
-
-## Configure for Public Access
-
-### Verify CORS is Enabled
-
-Check `docker-compose.yml` has:
-
-```yaml
-environment:
-  CORS_ENABLED: "true"
-  CORS_ALLOWED_ORIGINS: "*"
-```
-
-✅ **CORS is already enabled** in your configuration!
-
-### Frontend Configuration
-
-The frontend now **automatically detects** the host and uses the correct URLs:
-
-- **Local development**: Uses `http://localhost:8080` and `http://localhost:5000`
-- **AWS EC2**: Uses `http://YOUR_PUBLIC_IP:8080` and `http://YOUR_PUBLIC_IP:5000`
-
-This is handled by the new `frontend/js/config.js` file.
-
-### Check Container Status
+The GeoServer image takes 10–15 minutes to build the first time.
 
 ```bash
 docker-compose ps
+docker-compose logs -f
 ```
 
-All three services should show "Up" status.
+Look for:
+- postgis: `database system is ready to accept connections`
+- geoserver: `Server startup in [xxxx] milliseconds`
+- flask-api: `Running on http://0.0.0.0:5000`
+- nginx: no errors
+
+### 4. Load the ice island data
+
+```bash
+docker-compose exec postgis bash /scripts/load_data.sh
+```
+
+This loads the shapefile, reprojects it to EPSG:4326, and creates the btree indexes
+on `inst` and `lineage` that the lineage traversal needs.
+
+Verify:
+
+```bash
+docker-compose exec postgis psql -U geoserver -d ci2d3_db \
+  -c "SELECT COUNT(*) FROM iceislands;"     # expect 25364
+```
+
+### 5. Configure GeoServer
+
+```bash
+docker-compose exec geoserver bash /opt/scripts/configure_geoserver.sh
+```
+
+This creates the `ci2d3` workspace, the PostGIS datastore and the `iceislands` layer.
 
 ---
 
-## Testing
+## Verify the deployment
 
-### Test from Your Local Machine
-
-**1. Test GeoServer:**
-
-Open in browser:
-```
-http://54.123.45.67:8080/geoserver
-```
-
-**Login credentials:**
-- Username: `admin`
-- Password: `geoserver` (or your changed password)
-
-**2. Test Flask API:**
+From your own machine:
 
 ```bash
-curl http://54.123.45.67:5000/health
-```
+# Portal
+curl -I http://54.123.45.67/
 
-Expected response:
-```json
-{
-  "status": "healthy",
-  "service": "ci2d3-api",
-  "version": "1.0.0"
-}
-```
+# API health
+curl http://54.123.45.67/health
 
-**3. Test Frontend Application:**
+# Attributes
+curl http://54.123.45.67/api/inspect/attributes
 
-Open in browser:
-```
-http://54.123.45.67:8080/
-```
-
-You should see:
-- ✅ Map loads correctly
-- ✅ Ice islands are visible
-- ✅ Click on ice island shows details
-- ✅ Filter panel works
-
-**4. Test WMS Layer:**
-
-```
-http://54.123.45.67:8080/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities
-```
-
-Should return XML with layer information.
-
-**5. Test API Endpoints:**
-
-```bash
-# Get attributes
-curl http://54.123.45.67:5000/api/inspect/attributes
-
-# Filter by location
-curl -X POST http://54.123.45.67:5000/api/filter/ \
+# Combined filter
+curl -X POST http://54.123.45.67/api/filter/ \
   -H "Content-Type: application/json" \
-  -d '{"field": "calvingloc", "operator": "=", "value": "PG"}'
+  -d '{"filters":[{"field":"calvingloc","operator":"=","value":"PG"},
+                  {"field":"calvingyr","operator":"=","value":"2010"}],
+       "logic":"AND"}'
+
+# Lineage
+curl -X POST http://54.123.45.67/api/lineage/ \
+  -H "Content-Type: application/json" \
+  -d '{"inst":"20080718_161758_es_0_PUX","mode":"chain"}'
+
+# WMS capabilities
+curl "http://54.123.45.67/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities" | head
 ```
+
+Confirm the internal ports are **not** publicly reachable (these should fail):
+
+```bash
+curl --max-time 5 http://54.123.45.67:8080/   # expect timeout / refused
+curl --max-time 5 http://54.123.45.67:5000/   # expect timeout / refused
+```
+
+Then open `http://54.123.45.67/` in a browser and check:
+
+- the map and basemap load
+- ice island polygons are drawn
+- clicking a polygon opens the inspect panel on the left
+- **Track Lineage** draws the before/after coloured lineage
+- **Apply Filter** and **Additional Filter** both narrow the result
+
+---
+
+## Admin access over an SSH tunnel
+
+Because 8080 and 5000 are no longer public, reach them by forwarding through SSH:
+
+```bash
+ssh -i "your-key.pem" -L 8080:localhost:8080 -L 5000:localhost:5000 \
+    ubuntu@54.123.45.67
+```
+
+While that session is open, on your own machine:
+
+- GeoServer admin → http://localhost:8080/geoserver
+- Flask API → http://localhost:5000/health
+
+For the database:
+
+```bash
+ssh -i "your-key.pem" -L 5432:localhost:5432 ubuntu@54.123.45.67
+psql -h localhost -U geoserver -d ci2d3_db
+```
+
+The GeoServer admin UI is also reachable publicly at `http://<IP>/geoserver/web/`. If
+you would rather it were not, uncomment the IP-restriction block in
+`docker/nginx/nginx.conf` and set your address — WMS/WFS keeps working for everyone.
+
+---
+
+## Embedding the portal
+
+```html
+<iframe src="http://54.123.45.67/"
+        width="100%" height="625"
+        style="border:none; display:block;"
+        title="CI2D3 Ice Island Explorer"
+        loading="lazy"></iframe>
+```
+
+nginx removes `X-Frame-Options` and sets `Content-Security-Policy: frame-ancestors *`,
+so the portal can be framed by another site.
+
+**If the host page is HTTPS**, browsers silently block an `http://` iframe as mixed
+content. This is the most common reason an embed shows a blank box — add TLS (below)
+and embed via `https://`.
+
+Some WordPress installs strip `<iframe>` from post content. If the tag disappears on
+save, add it through a Custom HTML block, and if that still fails allow the tag in
+your theme's `wp_kses_allowed_html` filter.
+
+---
+
+## Adding HTTPS
+
+Let's Encrypt requires a **domain name** — it will not issue certificates for bare IP
+addresses. Point a domain at the instance first (Route 53 or any DNS provider):
+
+```
+iceislands.example.org  A  54.123.45.67
+```
+
+Then, on the instance:
+
+```bash
+sudo apt install -y certbot
+docker-compose stop nginx           # free port 80 for the challenge
+sudo certbot certonly --standalone -d iceislands.example.org
+```
+
+Mount the certificates into the nginx container by adding to the `nginx` service in
+`docker-compose.yml`:
+
+```yaml
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    ports:
+      - "80:80"
+      - "443:443"
+```
+
+Then add a TLS server block to `docker/nginx/nginx.conf`, redirecting HTTP to HTTPS:
+
+```nginx
+    server {
+        listen 80;
+        server_name iceislands.example.org;
+        return 301 https://$host$request_uri;
+    }
+
+    server {
+        listen 443 ssl;
+        server_name iceislands.example.org;
+
+        ssl_certificate     /etc/letsencrypt/live/iceislands.example.org/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/iceislands.example.org/privkey.pem;
+
+        # ... same proxy_set_header lines and location blocks as the port 80 server
+    }
+```
+
+Restart and add renewal:
+
+```bash
+docker-compose up -d nginx
+echo "0 3 * * * root certbot renew --quiet --pre-hook 'docker-compose -f /home/ubuntu/ci2d3_web/docker-compose.yml stop nginx' --post-hook 'docker-compose -f /home/ubuntu/ci2d3_web/docker-compose.yml start nginx'" | sudo tee /etc/cron.d/certbot-renew
+```
+
+The frontend needs no change — `config.js` uses whatever origin the page was served
+from, so it follows automatically to `https://`.
+
+---
+
+## Security hardening
+
+1. **Change the default passwords** (database and GeoServer admin) before going
+   public. The database password appears in both the `postgis` and `flask-api`
+   service definitions and must match.
+
+2. **Restrict SSH to your own IP** in the security group.
+
+3. **Keep only ports 22, 80 (and 443) open.** Everything else stays on loopback.
+
+4. **Restrict the GeoServer admin UI** — uncomment the IP allow-list in
+   `docker/nginx/nginx.conf` if you do not need it publicly reachable.
+
+5. **Turn off Flask debug mode for production.** `docker-compose.yml` sets
+   `FLASK_DEBUG: 1` for development convenience; the debugger must not be exposed on
+   a public server. Set it to `0` and use a WSGI server such as gunicorn instead of
+   `flask run`.
+
+6. **Tighten CORS.** `CORS_ALLOWED_ORIGINS` is `*`. With the reverse proxy the
+   frontend is same-origin and no longer needs CORS at all, so this can be narrowed to
+   the sites that embed the portal.
+
+7. **Keep the host patched.**
+
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   docker-compose pull && docker-compose up -d
+   ```
 
 ---
 
 ## Troubleshooting
 
-### Services Not Starting
+### The site does not load on port 80
 
-**Check logs:**
 ```bash
-docker-compose logs geoserver
-docker-compose logs flask-api
-docker-compose logs postgis
+docker-compose ps nginx
+docker-compose logs nginx
+sudo ss -tulpn | grep ':80'
 ```
 
-**Restart services:**
+Then confirm the security group has an inbound rule for port 80 from `0.0.0.0/0`.
+
+### nginx starts but returns 502 Bad Gateway
+
+nginx is up but a backend is not. Check which:
+
 ```bash
-docker-compose restart
-```
-
-### Can't Access from Browser
-
-**1. Verify Security Group rules are correct**
-
-**2. Check if services are listening:**
-```bash
-sudo netstat -tulpn | grep -E '8080|5000|5432'
-```
-
-**3. Test locally on EC2:**
-```bash
-curl http://localhost:8080/geoserver/web/
+docker-compose ps
+curl http://localhost:8080/geoserver/web/   # on the EC2 box
 curl http://localhost:5000/health
 ```
 
-### CORS Errors
+GeoServer takes 2–3 minutes to start; 502s during that window are expected.
 
-**Check CORS configuration:**
+### Map loads but no ice islands appear
+
 ```bash
-docker-compose exec geoserver env | grep CORS
+curl "http://localhost/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities" | head
+docker-compose exec geoserver bash /opt/scripts/configure_geoserver.sh
 ```
 
-Should show:
-```
-CORS_ENABLED=true
-CORS_ALLOWED_ORIGINS=*
-```
+### Track Lineage shows only one polygon
 
-**Restart GeoServer if needed:**
+The API is running an older build, or the browser cached old JavaScript:
+
 ```bash
-docker-compose restart geoserver
+docker-compose restart flask-api
+curl http://localhost/api/lineage/ -X POST -H 'Content-Type: application/json' \
+  -d '{"inst":"20080718_161758_es_0_PUX","mode":"chain"}' | head -c 300
 ```
 
-### Map Not Loading
+Then hard-refresh the browser (Ctrl+Shift+R).
 
-**1. Open browser console (F12)**
+### Lineage requests take minutes
 
-Check for errors related to:
-- Network requests
-- CORS errors
-- 404 errors
+The lineage indexes are missing:
 
-**2. Verify config.js is loaded:**
-
-In browser console:
-```javascript
-console.log(CONFIG);
-```
-
-Should show your public IP in URLs.
-
-### Data Not Loading
-
-**Check if data is in database:**
 ```bash
-docker-compose exec postgis psql -U geoserver -d ci2d3_db -c "SELECT COUNT(*) FROM iceislands;"
+docker-compose exec postgis bash /scripts/create_lineage_indexes.sh
 ```
 
-**Reload data if needed:**
+### Frontend edits have no effect
+
+`./frontend` is bind-mounted, so files update live — but browsers cache the JS. Bump
+the `?v=N` cache-buster on the script tags in `frontend/index.html` and hard-refresh.
+
+### Checking what is actually exposed
+
 ```bash
-docker-compose exec postgis bash /scripts/load_data.sh
+# On the EC2 box: 0.0.0.0:80 should be the only public listener
+sudo ss -tulpn | grep docker
 ```
 
 ---
 
-## Security Best Practices
+## Monitoring and backups
 
-### 1. Change Default Passwords
-
-Edit `.env`:
-```bash
-# Use strong passwords
-GEOSERVER_PASSWORD=YourStr0ngP@ssw0rd!
-DB_PASSWORD=An0therStr0ngP@ssw0rd!
-SECRET_KEY=$(openssl rand -hex 32)
-```
-
-Restart services:
-```bash
-docker-compose down
-docker-compose up -d
-```
-
-### 2. Restrict CORS Origins
-
-For production, edit `.env`:
-```bash
-# Instead of *
-CORS_ORIGINS=http://54.123.45.67:8080,http://54.123.45.67:5000
-```
-
-### 3. Use HTTPS
-
-Install and configure:
-- **Nginx** as reverse proxy
-- **Let's Encrypt** for SSL certificates
-
-### 4. Restrict Database Access
-
-Remove PostgreSQL port from Security Group (port 5432) unless needed for external access.
-
-### 5. Set Up Domain Name
-
-Use Route 53 or your DNS provider to point a domain to your EC2 public IP:
-```
-iceislands.yourdomain.com → 54.123.45.67
-```
-
-Then use domain in configuration instead of IP.
-
-### 6. Regular Updates
+### Health
 
 ```bash
-# Update system packages
-sudo apt update && sudo apt upgrade -y
-
-# Update Docker images
-docker-compose pull
-docker-compose up -d
-```
-
-### 7. Backups
-
-**Backup PostgreSQL data:**
-```bash
-# Create backup
-docker-compose exec postgis pg_dump -U geoserver ci2d3_db > backup_$(date +%Y%m%d).sql
-
-# Copy to S3 (optional)
-aws s3 cp backup_$(date +%Y%m%d).sql s3://your-bucket/backups/
-```
-
-**Backup GeoServer configuration:**
-```bash
-docker-compose exec geoserver tar czf /tmp/geoserver_backup.tar.gz /opt/geoserver_data
-docker cp ci2d3_geoserver:/tmp/geoserver_backup.tar.gz ./
-```
-
----
-
-## Monitoring
-
-### Check Service Health
-
-```bash
-# Overall status
 docker-compose ps
-
-# CPU and Memory usage
-docker stats
-
-# Disk usage
+docker stats --no-stream
 df -h
 ```
 
-### View Logs
+A minimal check script:
 
-```bash
-# All services
-docker-compose logs --tail=100 -f
-
-# Specific service
-docker-compose logs -f geoserver
-docker-compose logs -f flask-api
-docker-compose logs -f postgis
-```
-
-### Application Health Checks
-
-```bash
-# Create monitoring script
-nano monitor.sh
-```
-
-Add:
 ```bash
 #!/bin/bash
-echo "Checking GeoServer..."
-curl -s http://localhost:8080/geoserver/web/ > /dev/null && echo "✓ GeoServer OK" || echo "✗ GeoServer DOWN"
-
-echo "Checking Flask API..."
-curl -s http://localhost:5000/health > /dev/null && echo "✓ Flask API OK" || echo "✗ Flask API DOWN"
-
-echo "Checking PostGIS..."
-docker-compose exec -T postgis psql -U geoserver -d ci2d3_db -c '\q' > /dev/null 2>&1 && echo "✓ PostGIS OK" || echo "✗ PostGIS DOWN"
+curl -sf http://localhost/            > /dev/null && echo "✓ portal"    || echo "✗ portal"
+curl -sf http://localhost/health      > /dev/null && echo "✓ api"       || echo "✗ api"
+curl -sf http://localhost/geoserver/web/ > /dev/null && echo "✓ geoserver" || echo "✗ geoserver"
+docker-compose exec -T postgis psql -U geoserver -d ci2d3_db -c '\q' 2>/dev/null \
+  && echo "✓ postgis" || echo "✗ postgis"
 ```
 
-Make executable and run:
+### Logs
+
 ```bash
-chmod +x monitor.sh
-./monitor.sh
+docker-compose logs --tail=100 -f
+docker-compose logs -f nginx        # includes all public request traffic
+```
+
+### Backups
+
+```bash
+# Database
+docker-compose exec -T postgis pg_dump -U geoserver ci2d3_db > backup_$(date +%Y%m%d).sql
+
+# GeoServer configuration
+docker-compose exec geoserver tar czf /tmp/gs_backup.tar.gz /opt/geoserver_data
+docker cp ci2d3_geoserver:/tmp/gs_backup.tar.gz ./
 ```
 
 ---
 
-## Cost Optimization
+## Cost reference (us-east-1, on-demand)
 
-### AWS EC2 Cost Estimates (us-east-1)
-
-| Instance Type | Monthly Cost | Use Case |
-|---------------|--------------|----------|
-| t3.medium | ~$30 | Development/Testing |
+| Instance type | Approx. monthly | Use case |
+| --- | --- | --- |
+| t3.medium | ~$30 | Development / light use |
 | t3.large | ~$60 | Small production |
 | t3.xlarge | ~$121 | Medium production |
 
-### Cost Saving Tips
-
-1. **Use Reserved Instances** for production (up to 72% savings)
-2. **Stop instance** when not in use (Development)
-3. **Use Elastic IP** to maintain IP when stopping/starting
-4. **Enable CloudWatch** for monitoring and auto-scaling
-
----
-
-## Next Steps
-
-1. ✅ Application deployed and accessible
-2. ⬜ Configure custom domain
-3. ⬜ Set up HTTPS with Let's Encrypt
-4. ⬜ Configure backups to S3
-5. ⬜ Set up CloudWatch monitoring
-6. ⬜ Implement auto-scaling (if needed)
-
----
-
-## Support
-
-**Common Issues:**
-- See [SETUP.md](SETUP.md) for detailed troubleshooting
-- Check [README.md](README.md) for application documentation
-
-**AWS Resources:**
-- [EC2 Documentation](https://docs.aws.amazon.com/ec2/)
-- [Security Groups](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html)
+Reserved Instances or Savings Plans cut this substantially for long-running
+deployments. Stop the instance when idle, and use an Elastic IP so the address is
+preserved across stop/start.
 
 ---
 
 ## Summary
 
-Your CI2D3 Ice Island Explorer is now:
+```
+Portal            http://YOUR_EC2_PUBLIC_IP/
+GeoServer admin   http://YOUR_EC2_PUBLIC_IP/geoserver
+API               http://YOUR_EC2_PUBLIC_IP/api/
+Health            http://YOUR_EC2_PUBLIC_IP/health
 
-✅ **Deployed on AWS EC2**
-✅ **Accessible via public IP**
-✅ **CORS enabled for cross-origin requests**
-✅ **Frontend automatically configured**
-✅ **Ready for public use**
-
-**Access your application:**
+Public ports      22 (SSH, your IP only) and 80
+Internal only     8080 GeoServer, 5000 Flask, 5432 PostgreSQL (127.0.0.1)
 ```
-http://YOUR_EC2_PUBLIC_IP:8080/
-```
-
-**GeoServer Admin:**
-```
-http://YOUR_EC2_PUBLIC_IP:8080/geoserver
-```
-
-**API Endpoint:**
-```
-http://YOUR_EC2_PUBLIC_IP:5000/api/
-```
-
-Enjoy your deployed Ice Island Explorer! 🧊🗺️

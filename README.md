@@ -1,50 +1,62 @@
 # CI2D3 Ice Island Explorer
 
-A web-based GIS portal for visualizing and exploring Canadian Ice Island datasets (CI2D3). This system provides an interactive map interface with feature inspection and attribute-based filtering capabilities.
+A web-based GIS portal for visualizing and exploring the Canadian Ice Island Drift,
+Deterioration and Detection (CI2D3) database. It provides an interactive map with
+feature inspection, attribute filtering, and lineage tracking of individual ice
+islands through their fracture and drift history.
 
 ## Features
 
-- **Interactive Map Viewer**: Leaflet.js-based map with ice island locations
-- **Feature Inspection**: Click on ice islands to view detailed attribute information
-- **Dynamic Filtering**: Filter ice islands by attributes (calving location, year, area, etc.)
-- **WMS/WFS Support**: GeoServer integration for efficient spatial data delivery
-- **RESTful API**: Flask backend for custom queries and data access
-- **Responsive Design**: Bootstrap-based UI that works on desktop and mobile
+- **Interactive map viewer** — Leaflet map with three basemaps and a GeoServer WMS layer
+- **Feature inspection** — click any ice island polygon to see all of its database fields
+- **Attribute filtering** — filter by calving year, calving location, area, scene date or sensor
+- **Filter layering** — stack multiple filters together with AND logic
+- **Lineage tracking** — from any polygon, show its ancestors and descendants on the
+  map, colour-coded by their relationship to the selected observation
+- **Single public port** — the whole portal is served on port 80 behind a reverse proxy
+- **Embeddable** — can be dropped into another site (e.g. WordPress) with an `<iframe>`
 
 ## Architecture
 
-### Technology Stack
-
 | Component        | Technology                |
 | ---------------- | ------------------------- |
-| **Frontend**     | Leaflet.js, Bootstrap 5   |
-| **Backend API**  | Flask (Python 3.11)       |
+| **Reverse proxy**| nginx 1.27 (alpine)       |
+| **Frontend**     | Leaflet 1.9.4, Bootstrap 5.3.2 (vanilla JS, no build step) |
+| **Backend API**  | Flask 3.0 (Python 3.11)   |
 | **Database**     | PostgreSQL 16 + PostGIS   |
-| **GIS Server**   | GeoServer 2.27.0          |
+| **GIS Server**   | GeoServer 2.27.0 (Tomcat 9) |
 | **Deployment**   | Docker Compose            |
 
-### System Components
+### Request flow
+
+Everything reaches the user through **one public port (80)**. nginx routes by path,
+so the browser only ever talks to a single origin — there is no CORS involved and no
+port number in any URL.
 
 ```
-┌─────────────┐
-│   Browser   │
-│  (Leaflet)  │
-└──────┬──────┘
-       │
-       ├──────────────┐
-       │              │
-       v              v
-┌──────────┐   ┌──────────┐
-│GeoServer │   │  Flask   │
-│ WMS/WFS  │   │   API    │
-└────┬─────┘   └────┬─────┘
-     │              │
-     └──────┬───────┘
-            v
-     ┌──────────────┐
-     │  PostgreSQL  │
-     │   + PostGIS  │
-     └──────────────┘
+                    Internet
+                       │
+                       v
+              ┌─────────────────┐
+              │  nginx  :80     │   <- the ONLY publicly exposed port
+              └────────┬────────┘
+        ┌──────────────┼───────────────┐
+        │ /            │ /geoserver/   │ /api/
+        v              v               v
+   ┌─────────────────────────┐   ┌──────────────┐
+   │  GeoServer :8080        │   │  Flask :5000 │
+   │  (also serves frontend  │   │  REST API    │
+   │   from Tomcat ROOT)     │   │              │
+   └───────────┬─────────────┘   └──────┬───────┘
+               └───────────┬────────────┘
+                           v
+                 ┌────────────────────┐
+                 │ PostgreSQL :5432   │
+                 │   + PostGIS        │
+                 └────────────────────┘
+
+   GeoServer, Flask and PostGIS are bound to 127.0.0.1 only.
+   They are not reachable from the internet.
 ```
 
 ## Project Structure
@@ -53,308 +65,391 @@ A web-based GIS portal for visualizing and exploring Canadian Ice Island dataset
 ci2d3_web/
 │
 ├── docker/
-│   ├── geoserver/
-│   │   └── Dockerfile              # GeoServer image with GDAL support
-│   ├── postgres-postgis/           # (uses official PostGIS image)
-│   └── flask-api/
-│       └── Dockerfile              # Flask API image
+│   ├── nginx/nginx.conf            # Reverse proxy: /, /geoserver/, /api/
+│   ├── geoserver/Dockerfile        # GeoServer + Tomcat (serves the frontend)
+│   ├── postgres-postgis/Dockerfile # PostgreSQL 16 + PostGIS
+│   └── flask-api/Dockerfile        # Flask API
 │
 ├── backend/
-│   ├── app.py                      # Flask application entry point
-│   ├── config.py                   # Configuration settings
-│   ├── requirements.txt            # Python dependencies
+│   ├── app.py                      # Flask app factory, blueprint registration
+│   ├── config.py                   # Configuration / env vars
+│   ├── requirements.txt
 │   ├── routes/
-│   │   ├── filter_routes.py        # Filtering endpoints
-│   │   └── inspect_routes.py       # Inspection endpoints
+│   │   ├── filter_routes.py        # POST /api/filter/
+│   │   ├── inspect_routes.py       # GET  /api/inspect/...
+│   │   └── lineage_routes.py       # POST /api/lineage/
 │   ├── services/
-│   │   ├── db_service.py           # PostGIS database queries
-│   │   └── geoserver_service.py    # GeoServer integration
-│   ├── models/
-│   │   └── iceisland_model.py      # SQLAlchemy ORM model
+│   │   ├── db_service.py           # Filtering / attribute queries
+│   │   ├── lineage_service.py      # Recursive lineage-tree traversal
+│   │   └── geoserver_service.py    # GeoServer REST helpers
+│   ├── models/iceisland_model.py
 │   └── utils/
-│       ├── query_builder.py        # Dynamic SQL query builder
-│       └── geojson_formatter.py    # GeoJSON formatting utilities
+│       ├── query_builder.py        # Field-name sanitising, operator whitelist
+│       └── geojson_formatter.py
 │
 ├── frontend/
-│   ├── index.html                  # Main HTML page
+│   ├── index.html                  # Page header, filter sidebar, map, inspect panel
 │   ├── js/
-│   │   ├── map.js                  # Map initialization and layers
-│   │   ├── inspect.js              # Feature inspection logic
-│   │   └── filter.js               # Filter UI and API calls
-│   └── css/
-│       └── style.css               # Custom styles
+│   │   ├── config.js               # Resolves API/GeoServer URLs per deployment
+│   │   ├── map.js                  # Map, layers, legends, lineage rendering
+│   │   ├── inspect.js              # Inspect popup + Track Lineage
+│   │   └── filter.js               # Attribute metadata, filter stacking
+│   └── css/style.css
 │
 ├── scripts/
-│   ├── load_data.sh                # Bash script to load shapefile
-│   └── load_data.py                # Python script to load shapefile
+│   ├── load_data.sh                # Load shapefile into PostGIS (+ lineage indexes)
+│   ├── load_data.py
+│   ├── create_lineage_indexes.sh   # Add lineage indexes to an existing database
+│   └── configure_geoserver.sh      # Create workspace / datastore / layer
 │
-├── data/
-│   └── 240804_ci2d3v1_epsg5937.shp # Ice Island shapefile (EPSG:5937)
-│
-├── docker-compose.yml              # Docker orchestration
-└── README.md                       # This file
+├── ref/python/                     # Reference analysis code (ci2d3.py) the lineage
+│                                   # traversal was ported from. Not run by the app.
+├── data/240804_ci2d3v1_epsg5937.*  # Ice island shapefile (EPSG:5937)
+├── docker-compose.yml
+├── AWS_DEPLOYMENT.md               # Deploying to AWS EC2
+└── README.md
 ```
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker (20.10+)
-- Docker Compose (2.0+)
-- 4GB+ RAM available
-- 10GB+ disk space
+- Docker 20.10+ and Docker Compose 2.0+
+- 4 GB+ RAM, 10 GB+ disk
 
 ### Installation
 
-1. **Clone the repository**
+1. **Start the stack**
 
    ```bash
-   cd ci2d3_web
+   docker-compose up -d --build
    ```
 
-2. **Start the Docker containers**
+   Four services start: `nginx` (port 80), `geoserver`, `flask-api`, `postgis`.
+   Only nginx is published publicly; the rest listen on `127.0.0.1`.
+
+2. **Wait for GeoServer** (first boot takes 2–3 minutes)
 
    ```bash
-   docker-compose up -d
-   ```
-
-   This will start three services:
-   - `postgis` - PostgreSQL + PostGIS database (port 5432)
-   - `geoserver` - GeoServer (port 8080)
-   - `flask-api` - Flask API (port 5000)
-
-3. **Wait for services to be ready**
-
-   ```bash
-   # Check container status
    docker-compose ps
-
-   # View logs
-   docker-compose logs -f
+   docker-compose logs -f geoserver
    ```
 
-4. **Load the Ice Island data into PostGIS**
+3. **Load the data** (also creates the lineage indexes)
 
    ```bash
-   # Option 1: Using bash script
    docker-compose exec postgis bash /scripts/load_data.sh
-
-   # Option 2: Using Python script
-   docker-compose exec postgis python3 /scripts/load_data.py
    ```
 
-5. **Configure GeoServer**
+4. **Configure GeoServer**
 
-   - Open http://localhost:8080/geoserver
-   - Login: `admin` / `geoserver`
-   - Create workspace: `ci2d3`
-   - Add PostGIS datastore:
-     - Host: `postgis`
-     - Port: `5432`
-     - Database: `ci2d3_db`
-     - User: `geoserver`
-     - Password: `geoserver123`
-   - Publish layer: `iceislands`
+   ```bash
+   docker-compose exec geoserver bash /opt/scripts/configure_geoserver.sh
+   ```
 
-6. **Access the application**
+   Or manually at http://localhost/geoserver (`admin` / `geoserver`): create
+   workspace `ci2d3`, add a PostGIS datastore (host `postgis`, port `5432`,
+   database `ci2d3_db`, user `geoserver`), and publish the `iceislands` layer.
 
-   - Web Portal: http://localhost:8080/ (served by GeoServer)
-   - Or directly: Open `frontend/index.html` in a browser
-   - Flask API: http://localhost:5000/
-   - GeoServer: http://localhost:8080/geoserver
+5. **Open the portal**
+
+   | What | URL |
+   | --- | --- |
+   | Web portal | http://localhost/ |
+   | GeoServer admin | http://localhost/geoserver |
+   | API | http://localhost/api/ |
+   | Health check | http://localhost/health |
+
+For a public server, replace `localhost` with the machine's IP or domain — the
+frontend detects its own origin, so no configuration change is needed.
 
 ## Usage
 
-### Web Interface
+### Filtering
 
-1. **View Ice Islands**: The map loads with all ice islands displayed via WMS
-2. **Inspect Feature**: Click on an ice island to view its attributes
-3. **Filter Data**:
-   - Click "Filter" in the navigation
-   - Select an attribute (e.g., "Calving Location")
-   - Choose an operator (e.g., "=")
-   - Enter a value (e.g., "PG" for Petermann Glacier)
-   - Click "Apply Filter"
-4. **Clear Filter**: Click "Clear Filter" to restore all ice islands
+The sidebar filters observations by attribute. Each attribute offers only the
+operators that make sense for it, and attributes with a fixed set of values use a
+dropdown.
 
-### API Endpoints
+| Attribute | Description | Operators | Values |
+| --- | --- | --- | --- |
+| `calvingyr` | Year the ice island calved from its source | `=`, `!=` | 2008, 2010, 2011, 2012, NA |
+| `calvingloc` | Where the ice island originated | `=`, `!=` | PG, RG, SG, CG, NG, NA |
+| `area` | Area in km² | `=` `!=` `>` `<` `>=` `<=` | numeric |
+| `scenedate` | Date of the satellite scene | `LIKE` | e.g. `2010-10-10` |
+| `sensor` | Satellite sensor | `=`, `!=` | r1, r2, es, al |
 
-#### Inspect Endpoints
+**Why `scenedate` only offers `LIKE`:** the column is text and includes a time
+component (`2010-10-10 15:34:49`), so `=` against a plain `YYYY-MM-DD` value would
+never match. `LIKE` is wrapped in `%` server-side, so `2010-10-10` matches any scene
+on that day.
+
+**Stacking filters:** click **Apply Filter** for the first condition, then change the
+selection and click **Additional Filter** to add another. Conditions combine with
+AND, are listed under the form, and can be removed individually. **Clear Filter**
+resets everything.
+
+Example: `Calvingloc = PG` → 17,785 observations → `+ Calvingyr = 2010` → 9,658 →
+`+ Area > 100` → 55.
+
+### Inspecting and tracking lineage
+
+Click any polygon to open the inspect panel (top-left of the map) showing every
+database field for that observation. If the observation has an `inst` identifier,
+**Track Lineage** becomes available.
+
+Lineage is a rooted, directed tree: each observation's `lineage` field holds the
+`inst` of its parent observation, linking consecutive identifications of the same ice
+island across intervals with and without fracture. Clicking **Track Lineage** walks
+that tree from the selected polygon and draws the result:
+
+| Colour | Meaning |
+| --- | --- |
+| **Blue** | Before — ancestors, earlier observations this one came from |
+| **Gold** (heavier outline) | The polygon you selected |
+| **Orange** | After — descendants, later observations that came from it |
+| **Grey** | Related branch (cousins; only in `all` mode) |
+
+Polygons are numbered chronologically and joined by a dashed drift line. The button
+turns into **Clear Lineage**.
+
+## API Reference
+
+All endpoints are served under the same origin as the portal.
+
+### Health
 
 ```bash
-# Get feature by ID
-curl http://localhost:5000/api/inspect/123
-
-# Get available attributes
-curl http://localhost:5000/api/inspect/attributes
-
-# Get feature count
-curl http://localhost:5000/api/inspect/count
-
-# Get unique values for a field
-curl http://localhost:5000/api/inspect/unique/calvingloc
+curl http://localhost/health
 ```
 
-#### Filter Endpoint
+### Inspect
 
 ```bash
-# Filter by calving location
-curl -X POST http://localhost:5000/api/filter/ \
+curl http://localhost/api/inspect/123              # one feature by gid
+curl http://localhost/api/inspect/attributes       # available columns + types
+curl http://localhost/api/inspect/count            # total feature count
+curl http://localhost/api/inspect/unique/calvingloc
+```
+
+### Filter
+
+Single condition:
+
+```bash
+curl -X POST http://localhost/api/filter/ \
   -H "Content-Type: application/json" \
   -d '{"field": "calvingloc", "operator": "=", "value": "PG"}'
-
-# Filter by year
-curl -X POST http://localhost:5000/api/filter/ \
-  -H "Content-Type: application/json" \
-  -d '{"field": "carving_year", "operator": ">=", "value": 2010}'
 ```
+
+Multiple conditions (this is what **Additional Filter** sends):
+
+```bash
+curl -X POST http://localhost/api/filter/ \
+  -H "Content-Type: application/json" \
+  -d '{"filters": [
+        {"field": "calvingloc", "operator": "=", "value": "PG"},
+        {"field": "calvingyr",  "operator": "=", "value": "2010"},
+        {"field": "area",       "operator": ">", "value": 100}
+      ], "logic": "AND"}'
+```
+
+Returns a GeoJSON `FeatureCollection` (capped at 1000 features). Operators are
+whitelisted and all values are bound as query parameters.
+
+### Lineage
+
+```bash
+curl -X POST http://localhost/api/lineage/ \
+  -H "Content-Type: application/json" \
+  -d '{"inst": "20080718_161758_es_0_PUX", "mode": "chain"}'
+```
+
+| Mode | Returns |
+| --- | --- |
+| `chain` *(default)* | Ancestors **and** descendants of this observation |
+| `before` | Ancestors only |
+| `after` | Descendants only |
+| `all` | The entire connected component (see note) |
+
+Each feature carries a `lineage_role` of `self` / `before` / `after` / `related`, and
+the response includes a `lineage` block with `total`, `truncated` and a `roles`
+breakdown. Responses are capped (default 2000 features) and report the true total.
+
+> **Note on `all`:** because every fracture descendant of a calving event ends up in
+> one connected component, `all` averages ~2,800 observations and can reach ~6,300.
+> `chain` averages ~290 and is what the map uses.
 
 ## Data Schema
 
-The Ice Island dataset includes the following attributes:
+Table `iceislands` — 25,364 observations, loaded from
+`data/240804_ci2d3v1_epsg5937.shp` and reprojected from EPSG:5937 to EPSG:4326.
 
-| Field            | Type    | Description                        |
-| ---------------- | ------- | ---------------------------------- |
-| gid              | Integer | Primary key (auto-generated)       |
-| objectid         | Integer | Object identifier                  |
-| iceisland_id     | String  | Unique ice island identifier       |
-| calvingloc       | String  | Calving location code (CG/NA/NG/PG/RG/SG) |
-| calvingdate      | Date    | Date of calving event              |
-| carving_year     | Integer | Year of calving                    |
-| area_km2         | Float   | Area in square kilometers          |
-| perimeter_km     | Float   | Perimeter in kilometers            |
-| max_length_km    | Float   | Maximum length                     |
-| max_width_km     | Float   | Maximum width                      |
-| thickness_m      | Float   | Ice thickness in meters            |
-| source_glacier   | String  | Source glacier name                |
-| geom             | Geometry| Polygon geometry (EPSG:4326)       |
+| Field | Type | Description |
+| --- | --- | --- |
+| `gid` | Integer | Primary key (generated on load) |
+| `inst` | String | **Unique observation identifier** (a lineage tree vertex) |
+| `lineage` | String | **The `inst` of the parent observation** (the tree edge) |
+| `calvingyr` | String | Calving year |
+| `calvingloc` | String | Calving location code |
+| `area` | Numeric | Area (km²) |
+| `perimeter` | Numeric | Perimeter (km) |
+| `length` | Numeric | Maximum length (km) |
+| `lon`, `lat` | Numeric | Centroid coordinates |
+| `scenedate` | String | Scene date/time, `YYYY-MM-DD HH:MM:SS` |
+| `imgref` | String | Source image reference |
+| `sensor` | String | Sensor code |
+| `beam_mode` | String | Sensor beam mode |
+| `pol` | String | Polarisation |
+| `mothercert`, `shpcert`, `georef`, `ddinfo` | String | Analyst certainty / provenance fields |
+| `geom` | Geometry | MultiPolygon, EPSG:4326 |
 
-### Calving Location Codes
+Root observations have a `lineage` value that is *not* any row's `inst` (it names the
+calving source, e.g. `..._P08`). There are 310 such roots; 25,304 of 25,364
+observations are connected to at least one other.
 
-- **CG**: Central Glacier
-- **NA**: North America
-- **NG**: Northern Glacier
-- **PG**: Petermann Glacier
-- **RG**: Ryder Glacier
-- **SG**: Southern Glacier
+> The shapefile also contains a leftover text column literally named `geometry`,
+> which is unrelated to the real `geom` column. The API excludes it.
+
+### Calving location codes
+
+| Code | Location |
+| --- | --- |
+| CG | C.H. Ostenfeld Glacier |
+| NA | Not Available |
+| NG | North Greenland |
+| PG | Petermann Glacier |
+| RG | Ryder Glacier |
+| SG | Steensby Glacier |
+
+### Sensor codes
+
+| Code | Sensor |
+| --- | --- |
+| r1 | Radarsat-1 |
+| r2 | Radarsat-2 |
+| es | Envisat |
+| al | Advanced Land Imager |
+
+## Embedding the portal
+
+Because the site is served on port 80, the embed URL is just the IP or domain:
+
+```html
+<iframe src="http://YOUR_SERVER_IP/"
+        width="100%" height="625"
+        style="border:none; display:block;"
+        title="CI2D3 Ice Island Explorer"></iframe>
+```
+
+nginx strips `X-Frame-Options` and sets `Content-Security-Policy: frame-ancestors *`,
+so the page can be framed by another site. The layout is tuned so the filter buttons
+stay visible at a height of 625 px.
+
+If the host page is served over **HTTPS**, browsers block an `http://` iframe as mixed
+content. Put a certificate on the server (see AWS_DEPLOYMENT.md) and embed via
+`https://`.
 
 ## Development
 
-### Backend Development
+### Running services individually
+
+`docker-compose` binds GeoServer, Flask and PostGIS to `127.0.0.1`, so on the host you
+can still reach them directly for debugging:
 
 ```bash
-# Install dependencies
-cd backend
-pip install -r requirements.txt
-
-# Run Flask development server
-export FLASK_APP=app.py
-export FLASK_ENV=development
-flask run --host=0.0.0.0 --port=5000
+curl http://localhost:5000/health              # Flask, bypassing nginx
+curl http://localhost:8080/geoserver/web/      # GeoServer, bypassing nginx
 ```
 
-### Frontend Development
+Opening the frontend directly on `http://localhost:8080/` also works — `config.js`
+detects the port and targets `:8080` / `:5000` instead of same-origin paths.
 
-The frontend is static HTML/JS/CSS. Simply edit the files in `frontend/` and refresh your browser.
+### Frontend
 
-### Database Management
+Static HTML/CSS/JS with no build step. `./frontend` is bind-mounted into the Tomcat
+ROOT webapp, so edits appear on refresh.
+
+**Bump the cache-buster when you change a JS file.** The script tags in `index.html`
+carry a `?v=N` query; Tomcat serves these with caching on, so without bumping `N`
+browsers keep running stale JS after a redeploy.
+
+### Backend
+
+`./backend` is bind-mounted and `FLASK_DEBUG=1` is set, so the reloader picks up
+changes. (Flask 3.x ignores `FLASK_ENV`, which is why `FLASK_DEBUG` is set explicitly —
+without it, newly added routes are not registered until the container restarts.)
+
+### Database
 
 ```bash
-# Access PostgreSQL
 docker-compose exec postgis psql -U geoserver -d ci2d3_db
 
-# Useful queries
 SELECT COUNT(*) FROM iceislands;
-SELECT calvingloc, COUNT(*) FROM iceislands GROUP BY calvingloc;
-SELECT * FROM iceislands WHERE carving_year >= 2010;
+SELECT calvingloc, COUNT(*) FROM iceislands GROUP BY calvingloc ORDER BY 2 DESC;
 ```
 
-## Configuration
+### Lineage indexes (important)
 
-### Environment Variables
+`ogr2ogr` only creates the GIST index on `geom`. The recursive lineage query joins on
+`inst` and `lineage`, so without btree indexes on those columns every step scans the
+whole table — turning a ~45 ms request into one that can take minutes.
 
-Create a `.env` file in the root directory to customize settings:
+`load_data.sh` creates them automatically. For a database that was already loaded:
 
-```env
-# Database
-DB_HOST=postgis
-DB_PORT=5432
-DB_NAME=ci2d3_db
-DB_USER=geoserver
-DB_PASSWORD=geoserver123
-
-# GeoServer
-GEOSERVER_URL=http://localhost:8080/geoserver
-GEOSERVER_WORKSPACE=ci2d3
-GEOSERVER_LAYER=iceislands
-GEOSERVER_USER=admin
-GEOSERVER_PASSWORD=geoserver
-
-# Flask
-FLASK_ENV=development
-SECRET_KEY=your-secret-key
+```bash
+docker-compose exec postgis bash /scripts/create_lineage_indexes.sh
 ```
 
 ## Troubleshooting
 
-### Data not loading
+**Portal not reachable on port 80**
 
 ```bash
-# Check if shapefile exists
-ls -lh data/240804_ci2d3v1_epsg5937.shp
-
-# Check PostGIS connection
-docker-compose exec postgis psql -U geoserver -d ci2d3_db -c '\dt'
+docker-compose ps nginx
+docker-compose logs nginx
 ```
 
-### GeoServer connection issues
+On a cloud VM, also confirm the firewall/security group allows inbound port 80.
+
+**Map loads but no ice islands** — the WMS layer is missing or misnamed. Check
+http://localhost/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities and re-run
+`configure_geoserver.sh`.
+
+**Track Lineage returns only one polygon** — the API is running an older build without
+`/api/lineage`, or the browser is running stale JS. Restart the API and hard-refresh:
 
 ```bash
-# Check GeoServer logs
-docker-compose logs geoserver
-
-# Restart GeoServer
-docker-compose restart geoserver
-```
-
-### API errors
-
-```bash
-# Check Flask logs
-docker-compose logs flask-api
-
-# Restart Flask
 docker-compose restart flask-api
 ```
 
+**Lineage requests are very slow** — the lineage indexes are missing; see above.
+
+**Changes to frontend files have no effect** — hard-refresh (Ctrl+Shift+R) and bump the
+`?v=` cache-buster in `index.html`.
+
+**Data missing**
+
+```bash
+docker-compose exec postgis psql -U geoserver -d ci2d3_db -c "SELECT COUNT(*) FROM iceislands;"
+docker-compose exec postgis bash /scripts/load_data.sh
+```
+
+## Deployment
+
+See **[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)** for deploying to AWS EC2, including
+security group configuration, HTTPS, and admin access over an SSH tunnel.
+
 ## Future Enhancements
 
-- [ ] Lineage tracking (parent/child ice island relationships)
-- [ ] Temporal filtering with time slider
+- [ ] HTTPS by default (Let's Encrypt automation)
+- [ ] Temporal filtering with a time slider
 - [ ] Export functionality (GeoJSON, CSV, KML)
-- [ ] User authentication and authorization
-- [ ] Performance optimization and caching
-- [ ] Additional visualization options (heatmaps, clustering)
-- [ ] Mobile app version
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-[Add license information here]
-
-## Contact
-
-[Add contact information here]
+- [ ] OR logic in the filter UI (the API already supports it)
+- [ ] User authentication for the GeoServer admin UI
+- [ ] Caching and pagination for large result sets
 
 ## Acknowledgments
 
-- CI2D3 Ice Island dataset
-- GeoServer community
-- Leaflet.js developers
-- PostGIS team
+- CI2D3 ice island dataset and the reference analysis code in `ref/python/`
+- GeoServer, PostGIS and Leaflet communities

@@ -17,7 +17,9 @@ services:
       - ./data:/data
       - ./scripts:/scripts
     ports:
-      - "5432:5432"
+      # Bound to loopback only: reachable from the host (and via SSH tunnel)
+      # for admin work, but never from the internet.
+      - "127.0.0.1:5432:5432"
     networks:
       - ci2d3_network
     healthcheck:
@@ -59,7 +61,9 @@ services:
       # which silently leaves stale JS in the browser.
       - ./frontend:/usr/local/tomcat/webapps/ROOT
     ports:
-      - "8080:8080"
+      # Loopback only - public traffic reaches GeoServer through nginx on
+      # port 80 (/geoserver/). Keeps 8080 off the internet.
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgis:
         condition: service_healthy
@@ -95,13 +99,38 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "5000:5000"
+      # Loopback only - public traffic reaches the API through nginx on
+      # port 80 (/api/). Keeps 5000 off the internet.
+      - "127.0.0.1:5000:5000"
     depends_on:
       postgis:
         condition: service_healthy
     networks:
       - ci2d3_network
     command: flask run --host=0.0.0.0 --port=5000
+    restart: unless-stopped
+
+  # Reverse proxy - the only publicly exposed service.
+  # Serves the whole portal on port 80 so the site is reached at
+  # http://<PUBLIC-IP>/ with no port suffix.
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ci2d3_nginx
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - geoserver
+      - flask-api
+    networks:
+      - ci2d3_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
 networks:
