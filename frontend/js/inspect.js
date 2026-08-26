@@ -131,12 +131,12 @@ function formatPropertyValue(key, value) {
  */
 function getCalvingLocationName(code) {
     const names = {
-        'CG': 'Central Glacier',
-        'NA': 'North America',
-        'NG': 'Northern Glacier',
+        'CG': 'C.H. Ostenfeld Glacier',
+        'NA': 'Not Available',
+        'NG': 'North Greenland',
         'PG': 'Petermann Glacier',
         'RG': 'Ryder Glacier',
-        'SG': 'Southern Glacier'
+        'SG': 'Steensby Glacier'
     };
     return names[code] || 'Unknown';
 }

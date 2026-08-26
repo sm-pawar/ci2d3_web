@@ -3,117 +3,259 @@
  * Handles attribute-based filtering of ice islands
  */
 
-// Array to store active filter conditions
-let filterConditions = [];
+/**
+ * Metadata for each filterable attribute.
+ *
+ * Drives the operator list, the value control (dropdown vs free text) and the
+ * help text, so the form only ever offers combinations that make sense for
+ * the underlying column.
+ */
+const EQUALITY_OPERATORS = [
+    { value: '=', text: '=' },
+    { value: '!=', text: '!=' }
+];
 
-// Descriptions for each attribute
-const fieldDescriptions = {
-    'calvingyr': 'The year the ice island calved from the glacier.',
-    'calvingloc': 'Location code indicating where the ice island originated (e.g., PG for Petermann Glacier).',
-    'area': 'Area of the ice island in square kilometers (km²).',
-    'scenedate': 'Date of the satellite scene used for this observation.',
-    'imgref': 'Reference identifier for the satellite image.',
-    'sensor': 'Satellite sensor used to capture the image (e.g., MODIS, Landsat).'
+const NUMERIC_OPERATORS = [
+    { value: '=', text: '=' },
+    { value: '!=', text: '!=' },
+    { value: '>', text: '>' },
+    { value: '<', text: '<' },
+    { value: '>=', text: '>=' },
+    { value: '<=', text: '<=' }
+];
+
+const FIELD_META = {
+    calvingyr: {
+        description: 'The year the ice island calved from its source location.',
+        operators: EQUALITY_OPERATORS,
+        // "NA" is included because it covers 7,456 observations (29.4% of the
+        // database) and is listed as a valid calving year in the project's own
+        // constants (ref/python/defs.py). The data also contains 30 records
+        // with calvingyr "2013", which is deliberately not offered here - add
+        // an option below if those should be filterable too.
+        options: [
+            { value: '2008', label: '2008' },
+            { value: '2010', label: '2010' },
+            { value: '2011', label: '2011' },
+            { value: '2012', label: '2012' },
+            { value: 'NA', label: 'NA - Not Available' }
+        ]
+    },
+    calvingloc: {
+        description: 'Location code indicating where the ice island originated.',
+        operators: EQUALITY_OPERATORS,
+        options: [
+            { value: 'PG', label: 'PG - Petermann Glacier' },
+            { value: 'RG', label: 'RG - Ryder Glacier' },
+            { value: 'SG', label: 'SG - Steensby Glacier' },
+            { value: 'CG', label: 'CG - C.H. Ostenfeld Glacier' },
+            { value: 'NG', label: 'NG - North Greenland' },
+            { value: 'NA', label: 'NA - Not Available' }
+        ]
+    },
+    area: {
+        description: 'Area of the ice island in square kilometers (km²).',
+        operators: NUMERIC_OPERATORS,
+        numeric: true,
+        placeholder: 'e.g. 100',
+        defaultValue: '100',
+        defaultOperator: '>'
+    },
+    scenedate: {
+        // scenedate is stored as text including a time component
+        // (e.g. "2010-10-10 15:34:49"), so LIKE is the only operator that
+        // usefully matches a plain YYYY-MM-DD date.
+        description: 'Date of the satellite scene in which the ice island was ' +
+                     'observed, in YYYY-MM-DD.',
+        operators: [{ value: 'LIKE', text: 'LIKE' }],
+        placeholder: 'e.g. 2010-10-10',
+        valueHelp: 'Operator and Value example: LIKE 2010-10-10'
+    },
+    sensor: {
+        description: 'Satellite sensor used to capture the image.',
+        operators: EQUALITY_OPERATORS,
+        options: [
+            { value: 'r1', label: 'r1 - Radarsat-1' },
+            { value: 'r2', label: 'r2 - Radarsat-2' },
+            { value: 'es', label: 'es - Envisat' },
+            { value: 'al', label: 'al - Advanced Land Imager' }
+        ]
+    }
 };
 
 /**
- * Update the description box based on selected field
+ * Filters currently applied to the map, combined with AND.
+ * "Apply Filter" replaces this list; "Additional Filter" appends to it.
  */
-function updateFieldDescription() {
-    const fieldSelect = document.getElementById('filterField');
-    const descDiv = document.getElementById('fieldDescription');
-    const selectedValue = fieldSelect.value;
-    if (selectedValue && fieldDescriptions[selectedValue]) {
-        descDiv.textContent = fieldDescriptions[selectedValue];
-    } else {
-        descDiv.textContent = '';
-    }
-}
+let activeFilters = [];
 
 /**
- * Apply filter based on form inputs (single or additional)
+ * Read the current attribute/operator/value selection from the form.
+ * Returns null (after alerting) if the selection is incomplete or invalid.
  */
-async function applyFilter(event) {
-    event.preventDefault();
-
+function readFilterInput() {
     const field = document.getElementById('filterField').value;
     const operator = document.getElementById('filterOperator').value;
-    const value = document.getElementById('filterValue').value;
+    const meta = FIELD_META[field];
 
-    if (!field || !operator || !value) {
-        alert('Please fill in all filter fields');
-        return;
+    if (!field || !operator || !meta) {
+        alert('Please select an attribute and operator');
+        return null;
     }
 
-    // Determine value type based on field
-    let processedValue = value;
-    const numericFields = ['area', 'perimeter', 'length', 'lon', 'lat', 'gid'];
-    if (numericFields.includes(field)) {
-        processedValue = parseFloat(value);
-        if (isNaN(processedValue)) {
+    // The value comes from whichever control is visible for this attribute.
+    const valueSelect = document.getElementById('filterValueSelect');
+    const valueInput = document.getElementById('filterValue');
+    const usingSelect = !valueSelect.classList.contains('d-none');
+    const rawValue = usingSelect ? valueSelect.value : valueInput.value.trim();
+
+    if (!rawValue) {
+        alert('Please enter or select a value');
+        return null;
+    }
+
+    let value = rawValue;
+    if (meta.numeric) {
+        value = parseFloat(rawValue);
+        if (isNaN(value)) {
             alert('Please enter a valid number for this field');
-            return;
+            return null;
         }
     }
 
-    // Build new filter condition
-    const newCondition = {
-        field: field,
-        operator: operator,
-        value: processedValue
-    };
+    return { field: field, operator: operator, value: value };
+}
 
-    // Add to conditions array
-    filterConditions.push(newCondition);
+/**
+ * Run the current activeFilters against the API and update the map.
+ */
+async function runFilterQuery() {
+    if (activeFilters.length === 0) {
+        return;
+    }
 
-    // Build request payload with all filters
-    const filterRequest = {
-        filters: filterConditions
-    };
-
-    // Update button text if more than one filter
-    updateFilterButtonText();
-
-    // Show active filters summary
-    updateActiveFiltersSummary();
+    // A single filter uses the simple request shape; multiple filters are
+    // combined server-side with AND.
+    const body = activeFilters.length === 1
+        ? activeFilters[0]
+        : { filters: activeFilters, logic: 'AND' };
 
     showLoading(true);
 
     try {
         const response = await fetch(`${CONFIG.apiUrl}/filter/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(filterRequest)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let message = `HTTP error! status: ${response.status}`;
+            try {
+                const err = await response.json();
+                if (err.message) message = err.message;
+            } catch (e) { /* ignore parse errors */ }
+            throw new Error(message);
         }
 
         const data = await response.json();
 
-        // Display results
         displayFilterResults(data);
 
-        // Add filtered layer to map (will clear previous filtered layer)
         if (data.features && data.features.length > 0) {
             addFilteredLayer(data);
         } else {
-            showFilterMessage('No features match the combined filter criteria', 'warning');
+            // Nothing matched - drop the layer so the map isn't showing a
+            // stale result alongside a "no results" message.
+            clearFilteredLayer();
+            showFilterMessage('No features match the filter criteria', 'warning');
         }
 
     } catch (error) {
         console.error('Error applying filter:', error);
         showFilterMessage(`Error: ${error.message}`, 'danger');
-        // Remove the condition if the request failed
-        filterConditions.pop();
-        updateFilterButtonText();
-        updateActiveFiltersSummary();
     } finally {
         showLoading(false);
     }
+}
+
+/**
+ * Apply Filter - replace any existing filters with the current selection.
+ */
+async function applyFilter(event) {
+    if (event) {
+        event.preventDefault();
+    }
+
+    const filter = readFilterInput();
+    if (!filter) return;
+
+    activeFilters = [filter];
+    renderActiveFilters();
+    await runFilterQuery();
+}
+
+/**
+ * Additional Filter - add the current selection to the existing filters.
+ */
+async function addAdditionalFilter() {
+    const filter = readFilterInput();
+    if (!filter) return;
+
+    // With nothing applied yet this behaves the same as "Apply Filter".
+    activeFilters.push(filter);
+    renderActiveFilters();
+    await runFilterQuery();
+}
+
+/**
+ * Remove one applied filter and re-run the query.
+ */
+async function removeFilterAt(index) {
+    activeFilters.splice(index, 1);
+    renderActiveFilters();
+
+    if (activeFilters.length === 0) {
+        clearFilteredLayer();
+        const resultsDiv = document.getElementById('filterResults');
+        resultsDiv.classList.remove('active');
+        resultsDiv.innerHTML = '';
+    } else {
+        await runFilterQuery();
+    }
+}
+
+/**
+ * Render the list of currently applied filters.
+ */
+function renderActiveFilters() {
+    const container = document.getElementById('activeFilters');
+    if (!container) return;
+
+    if (activeFilters.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = '<div class="active-filters-title">Applied filters (AND)</div>';
+    activeFilters.forEach((f, i) => {
+        html += `
+            <div class="active-filter-item">
+                <code>${f.field} ${f.operator} ${f.value}</code>
+                <button type="button" class="btn-close btn-close-sm"
+                        aria-label="Remove filter"
+                        data-filter-index="${i}"></button>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+
+    // Wire up the remove buttons
+    container.querySelectorAll('[data-filter-index]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            removeFilterAt(parseInt(this.dataset.filterIndex, 10));
+        });
+    });
 }
 
 /**
@@ -133,7 +275,7 @@ function displayFilterResults(data) {
         resultsDiv.innerHTML = `
             <div class="alert alert-warning mb-0" role="alert">
                 <strong>No Results</strong><br>
-                No ice islands match the combined filter criteria
+                No ice islands match the filter criteria
             </div>
         `;
     }
@@ -155,55 +297,23 @@ function showFilterMessage(message, type = 'info') {
 }
 
 /**
- * Update the Apply/Additional Filter button text based on number of active filters
- */
-function updateFilterButtonText() {
-    const btn = document.getElementById('applyFilterBtn');
-    if (filterConditions.length === 0) {
-        btn.textContent = 'Apply Filter';
-    } else {
-        btn.textContent = `Additional Filter (${filterConditions.length})`;
-    }
-}
-
-/**
- * Update the summary of active filters
- */
-function updateActiveFiltersSummary() {
-    const summaryDiv = document.getElementById('activeFiltersSummary');
-    if (filterConditions.length === 0) {
-        summaryDiv.innerHTML = '';
-        return;
-    }
-
-    let html = '<div class="alert alert-info mb-0 small"><strong>Active Filters:</strong><ul class="mb-0">';
-    filterConditions.forEach((cond, idx) => {
-        html += `<li>${cond.field} ${cond.operator} ${cond.value}</li>`;
-    });
-    html += '</ul></div>';
-    summaryDiv.innerHTML = html;
-}
-
-/**
- * Clear filter and restore original layer
+ * Clear all filters and restore the original layer
  */
 function clearFilter() {
-    // Reset form
-    document.getElementById('filterForm').reset();
-    // Clear the value input to default placeholder
-    document.getElementById('filterValue').value = '';
+    activeFilters = [];
+    renderActiveFilters();
 
-    // Reset conditions
-    filterConditions = [];
-    updateFilterButtonText();
-    updateActiveFiltersSummary();
+    // Reset the form back to its default attribute/operator/value
+    const fieldSelect = document.getElementById('filterField');
+    fieldSelect.value = 'area';
+    updateFieldControls();
 
     // Clear results
     const resultsDiv = document.getElementById('filterResults');
     resultsDiv.classList.remove('active');
     resultsDiv.innerHTML = '';
 
-    // Clear filtered layer on map (this also clears lineage layer)
+    // Clear filtered layer on map (this also clears the lineage layer)
     clearFilteredLayer();
 
     // Reset Track Lineage button if visible
@@ -211,11 +321,7 @@ function clearFilter() {
     if (trackLineageBtn) {
         trackLineageBtn.classList.remove('active');
         trackLineageBtn.textContent = 'Track Lineage';
-        trackLineageBtn.disabled = true;
     }
-
-    // Ensure the attribute description is cleared
-    updateFieldDescription();
 }
 
 /**
@@ -245,109 +351,97 @@ function toggleFilterPanel() {
 }
 
 /**
- * Update operator options based on selected field type
+ * Update the operator list, value control and help text for the selected
+ * attribute.
  */
-function updateOperatorOptions() {
+function updateFieldControls() {
     const fieldSelect = document.getElementById('filterField');
     const operatorSelect = document.getElementById('filterOperator');
-    const selectedOption = fieldSelect.options[fieldSelect.selectedIndex];
+    const valueInput = document.getElementById('filterValue');
+    const valueSelect = document.getElementById('filterValueSelect');
+    const fieldHelp = document.getElementById('filterFieldHelp');
+    const valueHelp = document.getElementById('filterValueHelp');
 
-    // Update description
-    updateFieldDescription();
-
-    if (!selectedOption || !selectedOption.value) {
+    const meta = FIELD_META[fieldSelect.value];
+    if (!meta) {
         operatorSelect.innerHTML = '';
         return;
     }
 
-    const dataType = selectedOption.dataset.type || selectedOption.getAttribute('data-type');
+    // Attribute description
+    fieldHelp.textContent = meta.description || '';
 
-    if (!dataType) {
-        console.error('No data-type attribute found!');
-        operatorSelect.innerHTML = '';
-        return;
-    }
-
+    // Operators
     operatorSelect.innerHTML = '';
-    let operators = [];
-
-    if (dataType.includes('numeric') || dataType.includes('int') || dataType.includes('float') || dataType.includes('double')) {
-        operators = [
-            { value: '=', text: '=' },
-            { value: '!=', text: '!=' },
-            { value: '>', text: '>' },
-            { value: '<', text: '<' },
-            { value: '>=', text: '>=' },
-            { value: '<=', text: '<=' }
-        ];
-    } else if (dataType.includes('char') || dataType.includes('text') || dataType.includes('varying')) {
-        operators = [
-            { value: '=', text: '=' },
-            { value: '!=', text: '!=' },
-            { value: 'LIKE', text: 'LIKE' },
-            { value: 'ILIKE', text: 'ILIKE (case-insensitive)' }
-        ];
-    } else if (dataType.includes('date') || dataType.includes('time')) {
-        operators = [
-            { value: '=', text: '=' },
-            { value: '!=', text: '!=' },
-            { value: '>', text: 'after' },
-            { value: '<', text: 'before' },
-            { value: '>=', text: 'on or after' },
-            { value: '<=', text: 'on or before' }
-        ];
-    } else {
-        operators = [
-            { value: '=', text: '=' },
-            { value: '!=', text: '!=' },
-            { value: 'LIKE', text: 'LIKE' }
-        ];
-    }
-
-    operators.forEach(op => {
+    meta.operators.forEach(op => {
         const option = document.createElement('option');
         option.value = op.value;
         option.textContent = op.text;
         operatorSelect.appendChild(option);
     });
+    if (meta.defaultOperator) {
+        operatorSelect.value = meta.defaultOperator;
+    }
 
-    // If we have a default value, set it (e.g., for area we want '>')
-    if (fieldSelect.value === 'area') {
-        operatorSelect.value = '>';
+    // Value control: dropdown for fixed option sets, free text otherwise
+    if (meta.options) {
+        valueSelect.innerHTML = '';
+        meta.options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            valueSelect.appendChild(option);
+        });
+        valueSelect.classList.remove('d-none');
+        valueInput.classList.add('d-none');
+        valueInput.removeAttribute('required');
+        valueSelect.setAttribute('required', 'required');
+        valueHelp.textContent = '';
+    } else {
+        valueSelect.classList.add('d-none');
+        valueSelect.removeAttribute('required');
+        valueInput.classList.remove('d-none');
+        valueInput.setAttribute('required', 'required');
+        valueInput.placeholder = meta.placeholder || 'Enter value...';
+        valueInput.value = meta.defaultValue || '';
+        valueHelp.textContent = meta.valueHelp || '';
     }
 }
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     const filterField = document.getElementById('filterField');
-    const filterForm = document.getElementById('filterForm');
-    const clearFilterBtn = document.getElementById('clearFilter');
-    const closeFilterBtn = document.getElementById('closeFilter');
 
+    // Filter form submission (Apply Filter)
+    const filterForm = document.getElementById('filterForm');
     if (filterForm) {
         filterForm.addEventListener('submit', applyFilter);
     }
 
+    // Additional Filter button
+    const additionalFilterBtn = document.getElementById('additionalFilter');
+    if (additionalFilterBtn) {
+        additionalFilterBtn.addEventListener('click', addAdditionalFilter);
+    }
+
+    // Clear filter button
+    const clearFilterBtn = document.getElementById('clearFilter');
     if (clearFilterBtn) {
         clearFilterBtn.addEventListener('click', clearFilter);
     }
 
+    // Close filter panel button
+    const closeFilterBtn = document.getElementById('closeFilter');
     if (closeFilterBtn) {
         closeFilterBtn.addEventListener('click', function() {
             toggleFilterPanel();
         });
     }
 
+    // Populate controls for the initially selected attribute, and refresh
+    // them whenever the attribute changes.
     if (filterField) {
-        filterField.addEventListener('change', updateOperatorOptions);
-        // Initialize operators and description on load
-        updateOperatorOptions();
-        // Set default operator for area
-        setTimeout(() => {
-            const operatorSelect = document.getElementById('filterOperator');
-            if (operatorSelect && filterField.value === 'area') {
-                operatorSelect.value = '>';
-            }
-        }, 100);
+        filterField.addEventListener('change', updateFieldControls);
+        updateFieldControls();
     }
 });

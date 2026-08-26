@@ -86,7 +86,7 @@ function initMap() {
 
     // Create overlay layers object for layer control
     const overlayLayers = {
-        'Ice Islands (CI2D3)': wmsLayer
+        'Static CI2D3 Database Layer': wmsLayer
     };
 
     // Add layer control with overlays
@@ -538,22 +538,22 @@ function addLegend() {
         div.innerHTML = `
             <h6><strong>Calving Location</strong></h6>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #90de4c;"></span> CG - C. Glacier
+                <span class="legend-color" style="background-color: #90de4c;"></span> CG - C.H. Ostenfeld Glacier
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #40d77a;"></span> NA - N. America
+                <span class="legend-color" style="background-color: #40d77a;"></span> NA - Not Available
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #debd76;"></span> NG - N. Glacier
+                <span class="legend-color" style="background-color: #debd76;"></span> NG - North Greenland
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #6154da;"></span> PG - Petermann G.
+                <span class="legend-color" style="background-color: #6154da;"></span> PG - Petermann Glacier
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #dc25e6;"></span> RG - R. Glacier
+                <span class="legend-color" style="background-color: #dc25e6;"></span> RG - Ryder Glacier
             </div>
             <div class="legend-item">
-                <span class="legend-color" style="background-color: #d51c3e;"></span> SG - S. Glacier
+                <span class="legend-color" style="background-color: #d51c3e;"></span> SG - Steensby Glacier
             </div>
         `;
         return div;

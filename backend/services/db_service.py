@@ -110,6 +110,36 @@ class DatabaseService:
         finally:
             session.close()
 
+    # Operators accepted by the filter endpoints.
+    VALID_OPERATORS = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'NOT IN']
+
+    @staticmethod
+    def _build_condition(field, operator, value, param_name):
+        """
+        Build a single parameterised WHERE condition.
+
+        Args:
+            field: Column name (must already be sanitised by the caller)
+            operator: One of VALID_OPERATORS
+            value: Value to compare against
+            param_name: Unique bind-parameter name for this condition
+
+        Returns:
+            (condition_sql, params_dict)
+        """
+        op = operator.upper()
+        if op not in DatabaseService.VALID_OPERATORS:
+            raise ValueError(f"Invalid operator: {operator}")
+
+        if op in ['LIKE', 'ILIKE']:
+            return f"{field} {operator} :{param_name}", {param_name: f"%{value}%"}
+
+        if op in ['IN', 'NOT IN']:
+            values = tuple(value) if isinstance(value, list) else (value,)
+            return f"{field} {operator} :{param_name}", {param_name: values}
+
+        return f"{field} {operator} :{param_name}", {param_name: value}
+
     def filter_features(self, field, operator, value):
         """
         Filter ice island features based on attribute criteria
@@ -122,31 +152,53 @@ class DatabaseService:
         Returns:
             GeoJSON FeatureCollection of matching features
         """
+        return self.filter_features_multi(
+            [{'field': field, 'operator': operator, 'value': value}]
+        )
+
+    def filter_features_multi(self, filters, logic='AND'):
+        """
+        Filter ice island features on one or more attribute criteria.
+
+        Args:
+            filters: List of {'field', 'operator', 'value'} dicts. Field names
+                     must already be sanitised by the caller (see
+                     QueryBuilder.sanitize_field_name).
+            logic: How to combine the conditions - 'AND' or 'OR'.
+
+        Returns:
+            GeoJSON FeatureCollection of matching features
+        """
+        if not filters:
+            raise ValueError("At least one filter is required")
+
+        logic = (logic or 'AND').upper()
+        if logic not in ('AND', 'OR'):
+            raise ValueError(f"Invalid logic: {logic}. Use 'AND' or 'OR'.")
+
         session = self.get_session()
         try:
-            # Validate operator to prevent SQL injection
-            valid_operators = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'NOT IN']
-            if operator.upper() not in valid_operators:
-                raise ValueError(f"Invalid operator: {operator}")
+            # Build one parameterised condition per filter, giving each its own
+            # bind-parameter name so repeated fields don't collide.
+            conditions = []
+            params = {}
+            for i, f in enumerate(filters):
+                condition, condition_params = self._build_condition(
+                    f['field'], f['operator'], f['value'], f'value_{i}'
+                )
+                conditions.append(condition)
+                params.update(condition_params)
 
-            # Build WHERE clause
-            if operator.upper() in ['LIKE', 'ILIKE']:
-                where_clause = f"{field} {operator} :value"
-                params = {'value': f"%{value}%"}
-            elif operator.upper() in ['IN', 'NOT IN']:
-                # Handle IN operator with list of values
-                where_clause = f"{field} {operator} :value"
-                params = {'value': tuple(value) if isinstance(value, list) else (value,)}
-            else:
-                where_clause = f"{field} {operator} :value"
-                params = {'value': value}
+            where_clause = f' {logic} '.join(conditions)
 
-            # First, get all column names from the table (except geometry and gid)
+            # Get all column names from the table. 'geometry' is excluded along
+            # with geom/gid: it is a leftover text column from the source
+            # shapefile DBF, not the real PostGIS geometry.
             columns_query = text("""
                 SELECT column_name
                 FROM information_schema.columns
                 WHERE table_name = 'iceislands'
-                    AND column_name NOT IN ('geom', 'gid')
+                    AND column_name NOT IN ('geom', 'gid', 'geometry')
                 ORDER BY ordinal_position
             """)
 
@@ -193,112 +245,6 @@ class DatabaseService:
 
         except Exception as e:
             print(f"Error filtering features: {e}")
-            raise
-        finally:
-            session.close()
-
-    def filter_features_multi(self, filters, logic='AND'):
-        """
-        Filter features using multiple conditions with AND/OR logic.
-
-        Args:
-            filters: List of dicts with keys: field, operator, value
-            logic: 'AND' or 'OR' (case-insensitive)
-
-        Returns:
-            GeoJSON FeatureCollection of matching features
-        """
-        if not filters:
-            return {'type': 'FeatureCollection', 'features': [], 'count': 0}
-
-        # Validate logic
-        logic = logic.upper()
-        if logic not in ('AND', 'OR'):
-            raise ValueError("logic must be AND or OR")
-
-        # Validate operators
-        valid_operators = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'NOT IN']
-        for f in filters:
-            op = f['operator'].upper()
-            if op not in valid_operators:
-                raise ValueError(f"Invalid operator: {op}")
-
-        # Build WHERE clause parts and parameters
-        where_parts = []
-        params = {}
-        for idx, f in enumerate(filters):
-            field = f['field']
-            op = f['operator'].upper()
-            value = f['value']
-
-            param_name = f"val_{idx}"
-
-            # Handle different operators
-            if op in ('LIKE', 'ILIKE'):
-                # Add wildcards for LIKE/ILIKE
-                where_parts.append(f"{field} {op} :{param_name}")
-                params[param_name] = f"%{value}%"
-            elif op in ('IN', 'NOT IN'):
-                # Expect value to be list/tuple
-                if not isinstance(value, (list, tuple)):
-                    value = (value,)
-                where_parts.append(f"{field} {op} :{param_name}")
-                params[param_name] = tuple(value)
-            else:
-                where_parts.append(f"{field} {op} :{param_name}")
-                params[param_name] = value
-
-        where_clause = f" {logic} ".join(where_parts)
-
-        # Get column names
-        session = self.get_session()
-        try:
-            columns_query = text("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'iceislands'
-                    AND column_name NOT IN ('geom', 'gid')
-                ORDER BY ordinal_position
-            """)
-            column_results = session.execute(columns_query).fetchall()
-            column_names = [row[0] for row in column_results]
-            columns_str = ', '.join(column_names)
-
-            # Build full query
-            query = text(f"""
-                SELECT
-                    gid,
-                    ST_AsGeoJSON(ST_Transform(geom, 4326))::json as geometry,
-                    {columns_str}
-                FROM iceislands
-                WHERE {where_clause}
-                ORDER BY gid
-                LIMIT 1000
-            """)
-
-            results = session.execute(query, params).fetchall()
-
-            # Build GeoJSON
-            features = []
-            for row in results:
-                properties = {}
-                for i, col_name in enumerate(column_names):
-                    properties[col_name] = row[i + 2]  # +2 for gid, geometry
-                features.append({
-                    'type': 'Feature',
-                    'id': row[0],
-                    'geometry': row[1],
-                    'properties': properties
-                })
-
-            return {
-                'type': 'FeatureCollection',
-                'features': features,
-                'count': len(features)
-            }
-
-        except Exception as e:
-            print(f"Error filtering features (multi): {e}")
             raise
         finally:
             session.close()
