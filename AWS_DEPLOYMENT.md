@@ -88,13 +88,42 @@ You can then remove the 8080 and 5000 inbound rules from the security group.
 3. Launch, wait for **Running**, and note the **public IPv4 address**
    (e.g. `54.123.45.67`).
 
-Consider attaching an **Elastic IP** so the address survives a stop/start.
-
 Connect:
 
 ```bash
 ssh -i "your-key.pem" ubuntu@54.123.45.67
 ```
+
+### If the public IP changes
+
+**Nothing inside the application needs updating.** The stack has no knowledge of its
+own public address:
+
+- the frontend builds every GeoServer and API URL from `window.location`, so it
+  simply uses whatever address the browser loaded it from (`frontend/js/config.js`),
+- nginx listens on `server_name _`, which matches any host,
+- the backend reaches GeoServer and PostGIS by Docker service name
+  (`http://geoserver:8080/...`), never by public IP.
+
+So after a stop/start that assigns a new address, the site works at the new
+`http://<NEW-IP>/` with no edits, no rebuild and no restart. The IP addresses in this
+guide are only examples for the `curl`/`ssh` commands.
+
+What *does* need attention when the address changes is everything **outside** the
+instance: bookmarks and any links you have shared, DNS records if you use a domain,
+and the `ssh` host in your own commands. (The security group's SSH rule is scoped to
+*your* IP, not the server's, so it is unaffected — though it does need updating if
+your own network address changes.)
+
+To stop the address changing at all, attach an **Elastic IP**: it stays with the
+instance across stop/start and is free while associated with a running instance. A
+domain name pointed at the instance is the more robust option, and is required for
+HTTPS — see [Adding HTTPS](#adding-https).
+
+> One exception to be aware of: GeoServer has a **Proxy Base URL** setting
+> (Settings → Global). It is deliberately left unset here, which makes GeoServer
+> build its capabilities URLs from the incoming request. If you ever set it to a
+> fixed address, that value *would* have to be updated whenever the IP changes.
 
 ---
 
