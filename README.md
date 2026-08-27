@@ -7,14 +7,16 @@ islands through their fracture and drift history.
 
 ## Features
 
-- **Interactive map viewer** — Leaflet map with three basemaps and a GeoServer WMS layer
+- **Interactive map viewer** — Leaflet map with a GeoServer WMS layer over ESRI World
+  Imagery (default) or OpenStreetMap
+- **Guided tour** — a four-step walkthrough that runs each feature live, shown on a
+  visitor's first visit and re-openable from the header
 - **Feature inspection** — click any ice island polygon to see all of its database fields
 - **Attribute filtering** — filter by calving year, calving location, area, scene date or sensor
 - **Filter layering** — stack multiple filters together with AND logic
 - **Lineage tracking** — from any polygon, show its ancestors and descendants on the
   map, colour-coded by their relationship to the selected observation
 - **Single public port** — the whole portal is served on port 80 behind a reverse proxy
-- **Embeddable** — can be dropped into another site (e.g. WordPress) with an `<iframe>`
 
 ## Architecture
 
@@ -93,7 +95,8 @@ ci2d3_web/
 │   │   ├── config.js               # Resolves API/GeoServer URLs per deployment
 │   │   ├── map.js                  # Map, layers, legends, lineage rendering
 │   │   ├── inspect.js              # Inspect popup + Track Lineage
-│   │   └── filter.js               # Attribute metadata, filter stacking
+│   │   ├── filter.js               # Attribute metadata, filter stacking
+│   │   └── tour.js                 # Guided tour shown on first visit
 │   └── css/style.css
 │
 ├── scripts/
@@ -191,6 +194,21 @@ resets everything.
 
 Example: `Calvingloc = PG` → 17,785 observations → `+ Calvingyr = 2010` → 9,658 →
 `+ Area > 100` → 55.
+
+### Guided tour
+
+On a visitor's first visit a short tour opens automatically and *performs* each
+capability against the live app rather than just describing it:
+
+1. filter by a single attribute (`area > 200`),
+2. stack a second filter (`+ calvingloc = PG`),
+3. inspect an observation and show all of its database fields,
+4. track that observation's lineage.
+
+Step 4 uses an ice island whose lineage is deliberately small (40 observations), so
+the demo stays cheap for the server — the whole tour makes four API calls. It is
+dismissed with **Skip** or **Finish**, remembered in `localStorage`, and can be
+reopened at any time with **Show me how** in the header.
 
 ### Inspecting and tracking lineage
 
@@ -330,25 +348,6 @@ observations are connected to at least one other.
 | r2 | Radarsat-2 |
 | es | Envisat |
 | al | Advanced Land Imager |
-
-## Embedding the portal
-
-Because the site is served on port 80, the embed URL is just the IP or domain:
-
-```html
-<iframe src="http://YOUR_SERVER_IP/"
-        width="100%" height="625"
-        style="border:none; display:block;"
-        title="CI2D3 Ice Island Explorer"></iframe>
-```
-
-nginx strips `X-Frame-Options` and sets `Content-Security-Policy: frame-ancestors *`,
-so the page can be framed by another site. The layout is tuned so the filter buttons
-stay visible at a height of 625 px.
-
-If the host page is served over **HTTPS**, browsers block an `http://` iframe as mixed
-content. Put a certificate on the server (see AWS_DEPLOYMENT.md) and embed via
-`https://`.
 
 ## Development
 

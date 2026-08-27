@@ -13,11 +13,10 @@ Deploy the CI2D3 Ice Island Explorer on AWS EC2, reachable at
 6. [Deploy the application](#deploy-the-application)
 7. [Verify the deployment](#verify-the-deployment)
 8. [Admin access over an SSH tunnel](#admin-access-over-an-ssh-tunnel)
-9. [Embedding the portal](#embedding-the-portal)
-10. [Adding HTTPS](#adding-https)
-11. [Security hardening](#security-hardening)
-12. [Troubleshooting](#troubleshooting)
-13. [Monitoring and backups](#monitoring-and-backups)
+9. [Adding HTTPS](#adding-https)
+10. [Security hardening](#security-hardening)
+11. [Troubleshooting](#troubleshooting)
+12. [Monitoring and backups](#monitoring-and-backups)
 
 ---
 
@@ -56,13 +55,8 @@ on 22 restricted to your own IP.
 ### Upgrading an existing deployment
 
 If you previously reached the site on `:8080`, that URL **will stop working** from the
-internet after this change. Update any bookmarks and — importantly — any `<iframe>`
-embeds to drop the port:
-
-```diff
-- <iframe src="http://54.123.45.67:8080/" ...>
-+ <iframe src="http://54.123.45.67/" ...>
-```
+internet after this change. Update any bookmarks to drop the port
+(`http://54.123.45.67:8080/` becomes `http://54.123.45.67/`).
 
 You can then remove the 8080 and 5000 inbound rules from the security group.
 
@@ -291,29 +285,6 @@ you would rather it were not, uncomment the IP-restriction block in
 
 ---
 
-## Embedding the portal
-
-```html
-<iframe src="http://54.123.45.67/"
-        width="100%" height="625"
-        style="border:none; display:block;"
-        title="CI2D3 Ice Island Explorer"
-        loading="lazy"></iframe>
-```
-
-nginx removes `X-Frame-Options` and sets `Content-Security-Policy: frame-ancestors *`,
-so the portal can be framed by another site.
-
-**If the host page is HTTPS**, browsers silently block an `http://` iframe as mixed
-content. This is the most common reason an embed shows a blank box — add TLS (below)
-and embed via `https://`.
-
-Some WordPress installs strip `<iframe>` from post content. If the tag disappears on
-save, add it through a Custom HTML block, and if that still fails allow the tag in
-your theme's `wp_kses_allowed_html` filter.
-
----
-
 ## Adding HTTPS
 
 Let's Encrypt requires a **domain name** — it will not issue certificates for bare IP
@@ -394,8 +365,8 @@ from, so it follows automatically to `https://`.
    `flask run`.
 
 6. **Tighten CORS.** `CORS_ALLOWED_ORIGINS` is `*`. With the reverse proxy the
-   frontend is same-origin and no longer needs CORS at all, so this can be narrowed to
-   the sites that embed the portal.
+   frontend is same-origin and no longer needs CORS at all, so this can be closed
+   down entirely.
 
 7. **Keep the host patched.**
 

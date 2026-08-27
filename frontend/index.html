@@ -21,25 +21,16 @@
 </head>
 <body>
     <div class="app-shell">
-        <!-- Page title / instructions -->
+        <!-- Page title -->
         <header class="app-header">
             <h1 class="app-title">Ice Island Records in the CI2D3 Database</h1>
-            <div class="app-intro">
-                Interact with the database by:
-                <ul>
-                    <li>filtering observations by attributes using selection options,</li>
-                    <li>retrieve all database information<sup>*</sup> for a given observation
-                        by clicking an ice island polygon, or</li>
-                    <li>visualising an ice island's lineage (i.e., ancestors and descendants)
-                        by clicking a polygon and selecting &ldquo;Track Lineage&rdquo;.</li>
-                </ul>
-                <p class="app-footnote">
-                    <sup>*</sup>see
-                    <a href="https://doi.org/10.22215/wirl/2018.1" target="_blank" rel="noopener">
-                        CI2D3 Database documentation</a>
-                    for details on these fields
-                </p>
-            </div>
+            <p class="app-subtitle">
+                Filter observations, inspect any ice island, and trace its lineage
+                through fracture and drift.
+                <button type="button" class="btn-guide" id="openTour">
+                    <span aria-hidden="true">&#9654;</span> Show me how
+                </button>
+            </p>
         </header>
 
         <!-- Main Content -->
@@ -148,6 +139,27 @@
         </div>
     </div>
 
+    <!-- Guided tour (shown on first visit, re-openable from the header) -->
+    <div class="tour-backdrop" id="tourBackdrop"></div>
+    <div class="tour-modal" id="tourModal" role="dialog" aria-modal="true"
+         aria-labelledby="tourTitle">
+        <div class="tour-head">
+            <span class="tour-badge" id="tourBadge">Welcome</span>
+            <button type="button" class="btn-close" id="tourClose" aria-label="Close"></button>
+        </div>
+        <h2 class="tour-title" id="tourTitle"></h2>
+        <div class="tour-body" id="tourBody"></div>
+        <div class="tour-status" id="tourStatus"></div>
+        <div class="tour-foot">
+            <div class="tour-dots" id="tourDots"></div>
+            <div class="tour-actions">
+                <button type="button" class="btn btn-link btn-sm" id="tourSkip">Skip</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="tourBack">Back</button>
+                <button type="button" class="btn btn-primary btn-sm" id="tourNext">Next</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -162,9 +174,10 @@
     <!-- The ?v= cache-buster must be bumped whenever these files change.
          Tomcat serves these with caching enabled, so without it browsers
          keep running stale JS after a redeploy. -->
-    <script src="js/config.js?v=3"></script>
-    <script src="js/map.js?v=3"></script>
-    <script src="js/inspect.js?v=3"></script>
-    <script src="js/filter.js?v=3"></script>
+    <script src="js/config.js?v=4"></script>
+    <script src="js/map.js?v=4"></script>
+    <script src="js/inspect.js?v=4"></script>
+    <script src="js/filter.js?v=4"></script>
+    <script src="js/tour.js?v=4"></script>
 </body>
 </html>
