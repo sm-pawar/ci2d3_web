@@ -1,8 +1,14 @@
-# WIRL two-server hosting (wirl.carleton.ca + geo.wirl.carleton.ca)
+# WIRL two-server hosting — step-by-step guide
 
-This directory holds everything needed to host the CI2D3 map app in its split,
-two-server production shape, **without** disturbing the single-box
-`docker-compose.yml` at the repo root (which stays valid for local dev / AWS).
+Host the CI2D3 map app split across two servers, **without** disturbing the
+single-box `docker-compose.yml` at the repo root (which stays valid for local
+dev / AWS):
+
+- **Frontend server** — `wirl.carleton.ca` (the live WordPress box, IP `206.12.98.25`).
+  Serves the map app at
+  `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/`.
+- **Backend server** — `geo.wirl.carleton.ca` (existing PostGIS + GeoServer, IP-restricted).
+  Gains a Flask API.
 
 ```
 Browser ──HTTPS──▶ wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/   (static app)
@@ -23,7 +29,7 @@ allow-listed WordPress box, the browser only ever talks to one origin (so **no
 CORS**), and the backend stays closed to the open internet. No change to the
 backend allow-list is required.
 
-Files:
+### Files in this directory
 
 | Path | Where it goes |
 |------|---------------|
@@ -40,88 +46,205 @@ Files:
 The `frontend/js/config.js` change (sub-path awareness) is already in the repo
 and needs no manual edit.
 
----
-
-## A. Frontend server (wirl.carleton.ca — the live WordPress box)
-
-Only **one new container** and **one config edit**; the running site is untouched.
-
-1. **Build the app image** (from a checkout of this repo on the box):
-   ```bash
-   docker build -f deploy/frontend/Dockerfile -t ci2d3-frontend:latest .
-   ```
-
-2. **Add the service.** Paste `frontend/ci2d3-service.snippet.yml` into the
-   existing WordPress-box `docker-compose.yml`, and add `ci2d3` to the
-   `reverse-proxy` service's `depends_on`.
-
-3. **Add the route.** Paste the two blocks from
-   `frontend/reverse-proxy-location.snippet.conf` into the **existing**
-   `wirl.carleton.ca` `:443` server block in
-   `reverse-proxy/nginx/conf.d/default.conf`. Nothing else in that file changes —
-   the app path is a deeper prefix than `location /`, so WordPress (including the
-   existing `/research/ice/ice-islands/ci2d3/` page) keeps serving everything else.
-
-4. **Bring it up and reload the proxy:**
-   ```bash
-   docker compose up -d ci2d3
-   docker compose exec reverse-proxy nginx -t     # validate
-   docker compose exec reverse-proxy nginx -s reload
-   ```
-
-5. **Verify:** `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/`
-   loads the map. (The bare path without the trailing slash 301-redirects to the
-   slashed form.)
-
-To ship a frontend change later: rebuild the image and
-`docker compose up -d --force-recreate ci2d3`. (Bump the `?v=` query on the
-`<script>` tags in `frontend/index.html` so browsers pick up changed JS.)
+> **Order:** do the **backend** first (Part B) so the API and layer exist, then
+> the **frontend** (Part A). Each part is self-contained; the frontend only
+> starts *serving* successfully once the backend is reachable.
 
 ---
 
-## B. Backend server (geo.wirl.carleton.ca — PostGIS + GeoServer)
+## Part B — Backend server (`geo.wirl.carleton.ca`)
 
-1. **Build the Flask image** (from a checkout of this repo on the box):
-   ```bash
-   docker build -f docker/flask-api/Dockerfile -t ci2d3-flask-api:latest .
-   ```
+Throughout, `BACKEND_STACK` is the directory that holds the existing backend
+`docker-compose.yml` (the one defining `postgis`, `geoserver`, `nginx`), and
+`REPO` is a checkout of this repository on the backend box.
 
-2. **Add the service.** Paste `backend/docker-compose.flask.snippet.yml` into the
-   backend `docker-compose.yml`, and add `flask-api` to the `nginx` service's
-   `depends_on`. Then merge `backend/.env.example` into the backend `.env`
-   (`POSTGRES_PASSWD` should already exist; add `FLASK_SECRET_KEY`).
+### B0. Get the repo onto the box
 
-3. **Add the API route.** Paste `backend/nginx-api-location.snippet.conf` into the
-   `:443` server block in the backend `nginx.conf`, next to `location /geoserver/`.
-   It reuses the same Carleton IP allow-list.
+```bash
+# on geo.wirl.carleton.ca
+git clone -b wirl_hosting https://github.com/sm-pawar/ci2d3_web.git ~/ci2d3_web
+export REPO=~/ci2d3_web
+export BACKEND_STACK=/path/to/your/backend/stack     # <-- edit: where the backend compose lives
+```
 
-4. **Bring it up and reload nginx:**
-   ```bash
-   docker compose up -d flask-api
-   docker compose exec nginx nginx -t
-   docker compose exec nginx nginx -s reload
-   ```
+### B1. Build the Flask API image
 
-5. **Load the data.** Copy the shapefile (`.shp/.dbf/.shx/.prj`) into
-   `/srv/geoserver/geoserver_data/ci2d3/`, then, from the backend stack directory:
-   ```bash
-   export POSTGRES_PASSWD=...          # same as the backend .env
-   SHAPE_DIR=/srv/geoserver/geoserver_data/ci2d3 \
-   SHAPEFILE_NAME=240804_ci2d3v1_epsg5937.shp \
-     bash /path/to/repo/deploy/backend/load_backend.sh
-   ```
-   This runs the repo's `scripts/load_data.sh` (shapefile → PostGIS `geodb`,
-   reprojected to EPSG:4326, with lineage indexes) and
-   `scripts/configure_geoserver.sh` (workspace `ci2d3`, datastore, layer
-   `iceislands`, and the calving-location SLD) against the backend containers.
-   The style file is taken from the repo's `data/` directory automatically.
+```bash
+cd "$REPO"
+docker build -f docker/flask-api/Dockerfile -t ci2d3-flask-api:latest .
+```
 
-6. **Verify (from a Carleton IP / VPN):**
-   `https://geo.wirl.carleton.ca/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities`
-   lists the `iceislands` layer, and
-   `https://geo.wirl.carleton.ca/api/` returns the API root JSON.
+### B2. Add the `flask-api` service to the backend compose
 
-### Notes / assumptions
+Open `$BACKEND_STACK/docker-compose.yml` and paste the service block from
+`$REPO/deploy/backend/docker-compose.flask.snippet.yml` alongside the existing
+services. Then add `flask-api` to the `nginx` service's `depends_on`:
+
+```yaml
+  nginx:
+    depends_on:
+      - geoserver
+      - flask-api        # <-- add this line
+```
+
+### B3. Add the API secrets to the backend `.env`
+
+`$BACKEND_STACK/.env` already has `POSTGRES_PASSWD`. Append a Flask secret:
+
+```bash
+cd "$BACKEND_STACK"
+printf 'FLASK_SECRET_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> .env
+```
+
+(For reference, all extra vars are listed in `$REPO/deploy/backend/.env.example`.)
+
+### B4. Add the IP-restricted `/api/` route to the backend nginx
+
+Open the backend `nginx.conf` and paste the `location /api/ { ... }` block from
+`$REPO/deploy/backend/nginx-api-location.snippet.conf` **inside** the
+`listen 443 ssl;` server block for `geo.wirl.carleton.ca`, right next to the
+existing `location /geoserver/`. It reuses the same Carleton allow-list.
+
+### B5. Start the API and reload nginx
+
+```bash
+cd "$BACKEND_STACK"
+docker compose up -d flask-api
+docker compose exec nginx nginx -t          # validate the config
+docker compose exec nginx nginx -s reload   # apply the new /api/ route
+```
+
+### B6. Load the data (shapefile → PostGIS → GeoServer)
+
+Copy the shapefile parts (`.shp/.dbf/.shx/.prj`) into
+`/srv/geoserver/geoserver_data/ci2d3/`, then run the loader from the backend
+stack directory:
+
+```bash
+cd "$BACKEND_STACK"
+export POSTGRES_PASSWD=...                                    # same value as the backend .env
+SHAPE_DIR=/srv/geoserver/geoserver_data/ci2d3 \
+SHAPEFILE_NAME=240804_ci2d3v1_epsg5937.shp \
+  bash "$REPO/deploy/backend/load_backend.sh"
+```
+
+This runs the repo's `scripts/load_data.sh` (shapefile → PostGIS `geodb`,
+reprojected to EPSG:4326, with lineage indexes on `inst`/`lineage`) and
+`scripts/configure_geoserver.sh` (workspace `ci2d3`, PostGIS datastore, layer
+`iceislands`, and the calving-location SLD). The style file is taken from the
+repo's `data/` directory automatically.
+
+> If your GeoServer admin password isn't the default `geoserver`, add
+> `GEOSERVER_ADMIN_PASSWORD=...` before `bash ...`. If the table already exists
+> the script asks before dropping it — answer at the prompt.
+
+### B7. Verify the backend (from a Carleton IP / on the VPN)
+
+```bash
+# Layer is published (should list ci2d3:iceislands):
+curl -s "https://geo.wirl.carleton.ca/geoserver/ci2d3/wms?service=WMS&request=GetCapabilities" | grep -i iceislands
+
+# API is up (returns the API root JSON):
+curl -s "https://geo.wirl.carleton.ca/api/"
+```
+
+---
+
+## Part A — Frontend server (`wirl.carleton.ca`, the live WordPress box)
+
+Only **one new container** and **one config edit**; the running site is
+untouched. `FRONTEND_STACK` is the directory holding the WordPress
+`docker-compose.yml` (the one defining `wordpress`, `mediawiki`, `erp-*`,
+`reverse-proxy`), and `REPO` is a checkout of this repo on the box.
+
+### A0. Get the repo onto the box
+
+```bash
+# on wirl.carleton.ca
+git clone -b wirl_hosting https://github.com/sm-pawar/ci2d3_web.git ~/ci2d3_web
+export REPO=~/ci2d3_web
+export FRONTEND_STACK=/path/to/your/wordpress/stack   # <-- edit: where the WordPress compose lives
+```
+
+### A1. Build the app image (static app + backend proxy)
+
+```bash
+cd "$REPO"
+docker build -f deploy/frontend/Dockerfile -t ci2d3-frontend:latest .
+```
+
+### A2. Add the `ci2d3` service to the WordPress compose
+
+Paste the service block from `$REPO/deploy/frontend/ci2d3-service.snippet.yml`
+into `$FRONTEND_STACK/docker-compose.yml`, and add `ci2d3` to the
+`reverse-proxy` service's `depends_on`:
+
+```yaml
+  reverse-proxy:
+    depends_on:
+      - wordpress
+      - mediawiki
+      - erp-frontend
+      - ci2d3            # <-- add this line
+```
+
+### A3. Add the route to the live reverse-proxy config
+
+Open `$FRONTEND_STACK/reverse-proxy/nginx/conf.d/default.conf` and paste the two
+blocks from `$REPO/deploy/frontend/reverse-proxy-location.snippet.conf`
+**inside** the existing `wirl.carleton.ca` `:443` server block. Nothing else in
+that file changes — the app path is a deeper prefix than `location /`, so
+WordPress (including the existing `/research/ice/ice-islands/ci2d3/` page) keeps
+serving everything else.
+
+### A4. Start the container and reload the proxy
+
+```bash
+cd "$FRONTEND_STACK"
+docker compose up -d ci2d3
+docker compose exec reverse-proxy nginx -t          # validate
+docker compose exec reverse-proxy nginx -s reload   # apply the new route
+```
+
+### A5. Verify
+
+Open `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/` —
+the map should load, tiles render, and clicking a feature / applying a filter
+should work (those hit `/geoserver` and `/api`). The bare path without the
+trailing slash 301-redirects to the slashed form.
+
+```bash
+# Quick smoke test from the box:
+curl -sI "https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/" | head -1
+curl -s  "https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/api/" | head -c 200
+```
+
+---
+
+## Updating later
+
+- **Frontend change** (HTML/CSS/JS): rebuild and recreate the container:
+  ```bash
+  cd "$REPO" && git pull
+  docker build -f deploy/frontend/Dockerfile -t ci2d3-frontend:latest .
+  cd "$FRONTEND_STACK" && docker compose up -d --force-recreate ci2d3
+  ```
+  Bump the `?v=` query on the `<script>` tags in `frontend/index.html` so
+  browsers pick up changed JS.
+- **Backend/API change**: rebuild `ci2d3-flask-api:latest` and
+  `docker compose up -d --force-recreate flask-api` in `$BACKEND_STACK`.
+
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---------|--------------------|
+| Map page 502/504 | `ci2d3` container down, or reverse-proxy can't resolve it — check both are on the same `webnet`; `docker compose ps`. |
+| Page loads but no tiles / API errors | Backend not reachable from the WordPress box, or the map path isn't in the backend allow-list. Confirm `206.12.98.25` is allowed for **both** `/geoserver/` and `/api/` in the backend nginx. |
+| Assets 404 (broken CSS/JS) | Page opened without the trailing slash and the redirect block (A3) wasn't added — re-check `reverse-proxy-location.snippet.conf`. |
+| `/api/` 403 | You're testing from a non-Carleton IP directly against `geo.wirl.carleton.ca`. That's expected — reach it via the frontend proxy, or use the VPN. |
+| Loader can't find shapefile | `SHAPEFILE_NAME` doesn't match the file in `SHAPE_DIR`; pass the correct name. |
+
+## Notes / assumptions
 
 - The Flask container uses the built-in `flask run` server (as the repo ships).
   For a busier deployment, add `gunicorn` to `backend/requirements.txt` and change
