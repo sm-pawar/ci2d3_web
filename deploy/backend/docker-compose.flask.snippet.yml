@@ -1,0 +1,49 @@
+# ==============================================================================
+# Paste this ONE service into the existing backend docker-compose.yml
+# (the file that defines postgis, geoserver, nginx on geo.wirl.carleton.ca).
+#
+# It joins the existing `geonet`, talks to the existing PostGIS, and is reached
+# from the public only through the backend nginx's IP-restricted /api/ route
+# (see deploy/backend/nginx-api-location.snippet.conf). Nothing is published to
+# the host directly.
+#
+# Build the image once from a checkout of this repo (so the compose file need
+# not live inside the repo):
+#
+#     docker build -f docker/flask-api/Dockerfile -t ci2d3-flask-api:latest .
+#
+# ==============================================================================
+
+  flask-api:
+    image: ci2d3-flask-api:latest
+    container_name: ci2d3_flask_api
+    restart: unless-stopped
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: production
+      FLASK_DEBUG: 0
+      # --- Existing backend PostGIS (from the backend compose) ---
+      DB_HOST: postgis
+      DB_PORT: 5432
+      DB_NAME: geodb
+      DB_USER: geouser
+      DB_PASSWORD: ${POSTGRES_PASSWD}
+      # --- GeoServer (internal, over geonet) ---
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_WORKSPACE: ci2d3
+      GEOSERVER_LAYER: iceislands
+      # Same-origin in the browser (served under wirl.carleton.ca), so CORS is
+      # not strictly needed; pin it defensively anyway.
+      CORS_ORIGINS: https://wirl.carleton.ca
+      SECRET_KEY: ${FLASK_SECRET_KEY}
+    depends_on:
+      - postgis
+    networks:
+      - geonet
+
+# --- and add `flask-api` to the nginx service's depends_on: ---
+#
+#   nginx:
+#     depends_on:
+#       - geoserver
+#       - flask-api      # <-- add this line

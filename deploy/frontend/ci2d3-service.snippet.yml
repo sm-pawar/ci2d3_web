@@ -1,0 +1,29 @@
+# ==============================================================================
+# Paste this ONE service into the existing WordPress-box docker-compose.yml
+# (the same file that defines wordpress, mediawiki, erp-*, reverse-proxy).
+#
+# It joins the existing `webnet`, so the reverse-proxy can reach it by name.
+# The image is built from this repo (see deploy/frontend/Dockerfile):
+#
+#     docker build -f deploy/frontend/Dockerfile -t ci2d3-frontend:latest .
+#
+# Nothing is published to the host - the reverse-proxy is the only public entry.
+# ==============================================================================
+
+  ci2d3:
+    image: ci2d3-frontend:latest
+    container_name: ci2d3
+    restart: always
+    expose:
+      - "80"
+    networks:
+      - webnet
+
+# --- and add `ci2d3` to the reverse-proxy service's depends_on: ---
+#
+#   reverse-proxy:
+#     depends_on:
+#       - wordpress
+#       - mediawiki
+#       - erp-frontend
+#       - ci2d3          # <-- add this line

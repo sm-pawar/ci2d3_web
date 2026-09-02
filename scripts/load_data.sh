@@ -17,9 +17,11 @@ DB_NAME="${DB_NAME:-ci2d3_db}"
 DB_USER="${DB_USER:-geoserver}"
 DB_PASSWORD="${DB_PASSWORD:-geoserver123}"
 
-# Shapefile path
-SHAPEFILE="/data/240804_ci2d3v1_epsg5937.shp"
-TABLE_NAME="iceislands"
+# Shapefile path. Override with the SHAPEFILE env var when the file name or
+# mount point differs (e.g. on the backend server the shapefile lives under
+# /srv/geoserver/geoserver_data/ci2d3, mounted to /data).
+SHAPEFILE="${SHAPEFILE:-/data/240804_ci2d3v1_epsg5937.shp}"
+TABLE_NAME="${TABLE_NAME:-iceislands}"
 
 echo ""
 echo "Configuration:"

@@ -1,0 +1,35 @@
+# ==============================================================================
+# Standalone compose for the CI2D3 map container (frontend / WordPress box).
+#
+# Prefer instead pasting deploy/frontend/ci2d3-service.snippet.yml into the
+# existing WordPress-box compose - fewer moving parts, one shared network.
+#
+# Use this file only if you want the map app as its OWN compose project. It then
+# has to JOIN the WordPress stack's existing `webnet` as an EXTERNAL network so
+# the reverse-proxy can resolve `ci2d3`. Find its real name with:
+#
+#     docker network ls | grep webnet
+#
+# and set it under networks.webnet.name below.
+#
+#     docker compose -f deploy/frontend/docker-compose.ci2d3.yml up -d --build
+# ==============================================================================
+services:
+  ci2d3:
+    build:
+      context: ../..
+      dockerfile: deploy/frontend/Dockerfile
+    image: ci2d3-frontend:latest
+    container_name: ci2d3
+    restart: always
+    expose:
+      - "80"
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    external: true
+    # Replace with the actual network name from `docker network ls`
+    # (usually "<wordpress-stack-dir>_webnet").
+    name: wordpress_webnet
