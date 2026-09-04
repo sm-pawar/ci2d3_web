@@ -6,7 +6,7 @@ dev / AWS):
 
 - **Frontend server** — `wirl.carleton.ca` (the live WordPress box, IP `206.12.98.25`).
   Serves the map app at
-  `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/`.
+  `https://wirl.carleton.ca/ci2d3_v1_map/`.
 - **Backend server** — `geo.wirl.carleton.ca` (existing GeoServer + nginx, IP-restricted).
   Gains a Flask API **and its own dedicated PostGIS** for the CI2D3 layer.
 
@@ -17,7 +17,7 @@ dev / AWS):
 > existing PostGIS is left completely untouched.
 
 ```
-Browser ──HTTPS──▶ wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/   (static app)
+Browser ──HTTPS──▶ wirl.carleton.ca/ci2d3_v1_map/   (static app)
                         │   /geoserver/*  ──▶ https://geo.wirl.carleton.ca/geoserver/*
                         │   /api/*        ──▶ https://geo.wirl.carleton.ca/api/*
                         ▼
@@ -225,15 +225,15 @@ docker compose exec reverse-proxy nginx -s reload   # apply the new route
 
 ### A5. Verify
 
-Open `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/` —
+Open `https://wirl.carleton.ca/ci2d3_v1_map/` —
 the map should load, tiles render, and clicking a feature / applying a filter
 should work (those hit `/geoserver` and `/api`). The bare path without the
 trailing slash 301-redirects to the slashed form.
 
 ```bash
 # Quick smoke test from the box:
-curl -sI "https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/" | head -1
-curl -s  "https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/api/" | head -c 200
+curl -sI "https://wirl.carleton.ca/ci2d3_v1_map/" | head -1
+curl -s  "https://wirl.carleton.ca/ci2d3_v1_map/api/" | head -c 200
 ```
 
 ---

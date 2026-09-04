@@ -9,7 +9,7 @@
  *     origin:  <origin>/geoserver  and  <origin>/api
  *
  *  2. Behind a reverse proxy under a SUB-PATH, e.g. the production WIRL host:
- *         https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/
+ *         https://wirl.carleton.ca/ci2d3_v1_map/
  *     GeoServer and the API are then reached relative to that sub-path:
  *         <origin>/research/.../ci2d3_v1_map/geoserver
  *         <origin>/research/.../ci2d3_v1_map/api
