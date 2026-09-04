@@ -7,17 +7,21 @@
 # scripts/configure_geoserver.sh) against the BACKEND stack (geo.wirl.carleton.ca)
 # without changing them. It uses a one-off container from the flask-api image
 # (which already bundles GDAL/ogr2ogr + psql + curl) attached to the backend's
-# `geonet`, so it can reach `postgis` and `geoserver` by name.
+# `geonet`, so it can reach `ci2d3-postgis` and `geoserver` by name.
+#
+# Loads into the DEDICATED ci2d3-postgis container (which you own), then points
+# the existing GeoServer's datastore at it.
 #
 # PREREQUISITES on the backend server:
-#   1. The `flask-api` service is defined in the backend docker-compose.yml and
-#      its image is built:  docker compose build flask-api
-#   2. The shapefile (.shp/.dbf/.shx/.prj) AND the style ci2d3_calvingloc_sld.sld
-#      have been copied into  $SHAPE_DIR  (default /srv/geoserver/geoserver_data/ci2d3).
-#   3. POSTGRES_PASSWD is set (same value as the backend .env).
+#   1. The `ci2d3-postgis` and `flask-api` services are in the backend
+#      docker-compose.yml and running (ci2d3-postgis) / built (flask-api image).
+#   2. The shapefile (.shp/.dbf/.shx/.prj) has been copied into $SHAPE_DIR
+#      (default /srv/geoserver/geoserver_data/ci2d3). The SLD is taken from the
+#      repo's data/ dir automatically.
+#   3. CI2D3_DB_PASSWORD is set (same value as the backend .env).
 #
 # USAGE (run from the directory holding the backend docker-compose.yml):
-#     export POSTGRES_PASSWD=...            # backend postgis password
+#     export CI2D3_DB_PASSWORD=...          # ci2d3-postgis password
 #     SHAPE_DIR=/srv/geoserver/geoserver_data/ci2d3 \
 #     SHAPEFILE_NAME=240804_ci2d3v1_epsg5937.shp \
 #       bash load_backend.sh
@@ -31,12 +35,13 @@ SERVICE="${SERVICE:-flask-api}"                       # tool container (has GDAL
 SHAPE_DIR="${SHAPE_DIR:-/srv/geoserver/geoserver_data/ci2d3}"
 SHAPEFILE_NAME="${SHAPEFILE_NAME:-240804_ci2d3v1_epsg5937.shp}"
 
-# Backend PostGIS (from the backend compose).
-DB_HOST="${DB_HOST:-postgis}"
+# Dedicated CI2D3 PostGIS (the ci2d3-postgis service you added to the backend
+# compose). Password comes from CI2D3_DB_PASSWORD in the backend .env.
+DB_HOST="${DB_HOST:-ci2d3-postgis}"
 DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-geodb}"
-DB_USER="${DB_USER:-geouser}"
-: "${POSTGRES_PASSWD:?Set POSTGRES_PASSWD (backend postgis password) first}"
+DB_NAME="${DB_NAME:-ci2d3_db}"
+DB_USER="${DB_USER:-ci2d3}"
+: "${CI2D3_DB_PASSWORD:?Set CI2D3_DB_PASSWORD (the ci2d3-postgis password) first}"
 
 # Backend GeoServer (internal address on geonet) + admin creds.
 GEOSERVER_URL="${GEOSERVER_URL:-http://geoserver:8080/geoserver}"
@@ -62,7 +67,7 @@ run_tool() {
     -v "$REPO_ROOT/data:/opt/data:ro" \
     `# /data -> shapefile (host copy); /opt/data -> repo data dir for the SLD` \
     -e DB_HOST="$DB_HOST" -e DB_PORT="$DB_PORT" \
-    -e DB_NAME="$DB_NAME" -e DB_USER="$DB_USER" -e DB_PASSWORD="$POSTGRES_PASSWD" \
+    -e DB_NAME="$DB_NAME" -e DB_USER="$DB_USER" -e DB_PASSWORD="$CI2D3_DB_PASSWORD" \
     -e SHAPEFILE="/data/$SHAPEFILE_NAME" \
     -e GEOSERVER_URL="$GEOSERVER_URL" \
     -e GEOSERVER_ADMIN_USER="$GEOSERVER_ADMIN_USER" \

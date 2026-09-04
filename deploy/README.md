@@ -7,8 +7,14 @@ dev / AWS):
 - **Frontend server** — `wirl.carleton.ca` (the live WordPress box, IP `206.12.98.25`).
   Serves the map app at
   `https://wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/`.
-- **Backend server** — `geo.wirl.carleton.ca` (existing PostGIS + GeoServer, IP-restricted).
-  Gains a Flask API.
+- **Backend server** — `geo.wirl.carleton.ca` (existing GeoServer + nginx, IP-restricted).
+  Gains a Flask API **and its own dedicated PostGIS** for the CI2D3 layer.
+
+> **Dedicated database.** You don't have access to the existing backend PostGIS,
+> so we add a **new `ci2d3-postgis` container that you own** to hold the CI2D3
+> `iceislands` layer. Both the Flask API and the existing GeoServer connect to it
+> over the shared `geonet` network (by container name — no host ports). The
+> existing PostGIS is left completely untouched.
 
 ```
 Browser ──HTTPS──▶ wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2d3_v1_map/   (static app)
@@ -18,7 +24,9 @@ Browser ──HTTPS──▶ wirl.carleton.ca/research/ice/ice-islands/ci2d3/ci2
               ci2d3 container (nginx)  ── server-to-server, from IP 206.12.98.25
                         │                     (already on the backend allow-list)
                         ▼
-        geo.wirl.carleton.ca : nginx (IP-restricted) ─▶ geoserver:8080  +  flask-api:5000 ─▶ postgis
+        geo.wirl.carleton.ca : nginx (IP-restricted)
+                        ├─▶ geoserver:8080 ──┐
+                        └─▶ flask-api:5000 ──┴─▶ ci2d3-postgis:5432   (new, self-owned)
 ```
 
 **Why proxy the backend through the frontend?** The backend nginx allow-lists
@@ -38,7 +46,7 @@ backend allow-list is required.
 | `frontend/ci2d3-service.snippet.yml` | one service to add to the WordPress-box compose |
 | `frontend/reverse-proxy-location.snippet.conf` | two `location` blocks to add to the live reverse-proxy `default.conf` |
 | `frontend/docker-compose.ci2d3.yml` | alt: run the app as its own compose project |
-| `backend/docker-compose.flask.snippet.yml` | one service to add to the backend compose |
+| `backend/docker-compose.flask.snippet.yml` | two services (`ci2d3-postgis` + `flask-api`) to add to the backend compose |
 | `backend/nginx-api-location.snippet.conf` | one `location /api/` block for the backend `nginx.conf` |
 | `backend/.env.example` | extra env vars for the backend `.env` |
 | `backend/load_backend.sh` | loads the shapefile → PostGIS → GeoServer on the backend |
@@ -56,7 +64,9 @@ and needs no manual edit.
 
 Throughout, `BACKEND_STACK` is the directory that holds the existing backend
 `docker-compose.yml` (the one defining `postgis`, `geoserver`, `nginx`), and
-`REPO` is a checkout of this repository on the backend box.
+`REPO` is a checkout of this repository on the backend box. We add a new
+`ci2d3-postgis` container and a `flask-api` container; the existing services are
+not modified except for one added `depends_on` line on `nginx`.
 
 ### B0. Get the repo onto the box
 
@@ -74,9 +84,9 @@ cd "$REPO"
 docker build -f docker/flask-api/Dockerfile -t ci2d3-flask-api:latest .
 ```
 
-### B2. Add the `flask-api` service to the backend compose
+### B2. Add the `ci2d3-postgis` + `flask-api` services to the backend compose
 
-Open `$BACKEND_STACK/docker-compose.yml` and paste the service block from
+Open `$BACKEND_STACK/docker-compose.yml` and paste **both** service blocks from
 `$REPO/deploy/backend/docker-compose.flask.snippet.yml` alongside the existing
 services. Then add `flask-api` to the `nginx` service's `depends_on`:
 
@@ -87,16 +97,23 @@ services. Then add `flask-api` to the `nginx` service's `depends_on`:
       - flask-api        # <-- add this line
 ```
 
-### B3. Add the API secrets to the backend `.env`
+The new `ci2d3-postgis` persists its data in a `./ci2d3_pgdata` directory next
+to the compose file (created automatically on first start).
 
-`$BACKEND_STACK/.env` already has `POSTGRES_PASSWD`. Append a Flask secret:
+### B3. Add the secrets to the backend `.env`
+
+Add a password for the new database and a Flask secret:
 
 ```bash
 cd "$BACKEND_STACK"
-printf 'FLASK_SECRET_KEY=%s\n' "$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> .env
+{
+  printf 'CI2D3_DB_PASSWORD=%s\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+  printf 'FLASK_SECRET_KEY=%s\n'  "$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+} >> .env
 ```
 
-(For reference, all extra vars are listed in `$REPO/deploy/backend/.env.example`.)
+(For reference, all extra vars are listed in `$REPO/deploy/backend/.env.example`.
+The existing `POSTGRES_PASSWD` for the pre-existing PostGIS is left as-is.)
 
 ### B4. Add the IP-restricted `/api/` route to the backend nginx
 
@@ -105,16 +122,16 @@ Open the backend `nginx.conf` and paste the `location /api/ { ... }` block from
 `listen 443 ssl;` server block for `geo.wirl.carleton.ca`, right next to the
 existing `location /geoserver/`. It reuses the same Carleton allow-list.
 
-### B5. Start the API and reload nginx
+### B5. Start the database + API and reload nginx
 
 ```bash
 cd "$BACKEND_STACK"
-docker compose up -d flask-api
+docker compose up -d ci2d3-postgis flask-api
 docker compose exec nginx nginx -t          # validate the config
 docker compose exec nginx nginx -s reload   # apply the new /api/ route
 ```
 
-### B6. Load the data (shapefile → PostGIS → GeoServer)
+### B6. Load the data (shapefile → `ci2d3-postgis` → GeoServer)
 
 Copy the shapefile parts (`.shp/.dbf/.shx/.prj`) into
 `/srv/geoserver/geoserver_data/ci2d3/`, then run the loader from the backend
@@ -122,17 +139,17 @@ stack directory:
 
 ```bash
 cd "$BACKEND_STACK"
-export POSTGRES_PASSWD=...                                    # same value as the backend .env
+export CI2D3_DB_PASSWORD=...                                  # same value as the backend .env
 SHAPE_DIR=/srv/geoserver/geoserver_data/ci2d3 \
 SHAPEFILE_NAME=240804_ci2d3v1_epsg5937.shp \
   bash "$REPO/deploy/backend/load_backend.sh"
 ```
 
-This runs the repo's `scripts/load_data.sh` (shapefile → PostGIS `geodb`,
+This runs the repo's `scripts/load_data.sh` (shapefile → the new `ci2d3_db`,
 reprojected to EPSG:4326, with lineage indexes on `inst`/`lineage`) and
-`scripts/configure_geoserver.sh` (workspace `ci2d3`, PostGIS datastore, layer
-`iceislands`, and the calving-location SLD). The style file is taken from the
-repo's `data/` directory automatically.
+`scripts/configure_geoserver.sh` (workspace `ci2d3`, a PostGIS datastore
+pointing at `ci2d3-postgis`, layer `iceislands`, and the calving-location SLD).
+The style file is taken from the repo's `data/` directory automatically.
 
 > If your GeoServer admin password isn't the default `geoserver`, add
 > `GEOSERVER_ADMIN_PASSWORD=...` before `bash ...`. If the table already exists

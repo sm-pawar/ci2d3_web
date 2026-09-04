@@ -1,19 +1,47 @@
 # ==============================================================================
-# Paste this ONE service into the existing backend docker-compose.yml
+# Paste these TWO services into the existing backend docker-compose.yml
 # (the file that defines postgis, geoserver, nginx on geo.wirl.carleton.ca).
 #
-# It joins the existing `geonet`, talks to the existing PostGIS, and is reached
-# from the public only through the backend nginx's IP-restricted /api/ route
-# (see deploy/backend/nginx-api-location.snippet.conf). Nothing is published to
-# the host directly.
+# Because you do NOT have access to the existing backend PostGIS, this brings up
+# a DEDICATED PostGIS container (`ci2d3-postgis`) that you own, to hold the CI2D3
+# `iceislands` layer. Both the Flask API and the existing GeoServer connect to
+# it over the shared `geonet` network (by container name, no host ports needed).
 #
-# Build the image once from a checkout of this repo (so the compose file need
-# not live inside the repo):
+# Reached from the public only through the backend nginx's IP-restricted /api/
+# route (see deploy/backend/nginx-api-location.snippet.conf). Nothing here is
+# published to the host.
+#
+# Build the Flask image once from a checkout of this repo:
 #
 #     docker build -f docker/flask-api/Dockerfile -t ci2d3-flask-api:latest .
 #
+# Set CI2D3_DB_PASSWORD and FLASK_SECRET_KEY in the backend .env
+# (see deploy/backend/.env.example).
 # ==============================================================================
 
+  # --- Dedicated PostGIS for the CI2D3 layer (self-owned) ---------------------
+  ci2d3-postgis:
+    image: postgis/postgis:16-3.4
+    container_name: ci2d3_postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ci2d3_db
+      POSTGRES_USER: ci2d3
+      POSTGRES_PASSWORD: ${CI2D3_DB_PASSWORD}
+    volumes:
+      - ./ci2d3_pgdata:/var/lib/postgresql/data
+    # Optional: uncomment for local admin access via an SSH tunnel only.
+    # ports:
+    #   - "127.0.0.1:5433:5432"
+    networks:
+      - geonet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci2d3 -d ci2d3_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- Flask API --------------------------------------------------------------
   flask-api:
     image: ci2d3-flask-api:latest
     container_name: ci2d3_flask_api
@@ -22,12 +50,12 @@
       FLASK_APP: app.py
       FLASK_ENV: production
       FLASK_DEBUG: 0
-      # --- Existing backend PostGIS (from the backend compose) ---
-      DB_HOST: postgis
+      # --- Dedicated CI2D3 PostGIS (the service above) ---
+      DB_HOST: ci2d3-postgis
       DB_PORT: 5432
-      DB_NAME: geodb
-      DB_USER: geouser
-      DB_PASSWORD: ${POSTGRES_PASSWD}
+      DB_NAME: ci2d3_db
+      DB_USER: ci2d3
+      DB_PASSWORD: ${CI2D3_DB_PASSWORD}
       # --- GeoServer (internal, over geonet) ---
       GEOSERVER_URL: http://geoserver:8080/geoserver
       GEOSERVER_WORKSPACE: ci2d3
@@ -37,7 +65,7 @@
       CORS_ORIGINS: https://wirl.carleton.ca
       SECRET_KEY: ${FLASK_SECRET_KEY}
     depends_on:
-      - postgis
+      - ci2d3-postgis
     networks:
       - geonet
 
